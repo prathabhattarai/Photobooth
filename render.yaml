@@ -7,8 +7,8 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        sync: false
+        value: "postgresql://togetherframe_db_user:HCwStg2xfrI7svSGdWhkQS8UpcwSQcW5@dpg-d9h4gtnavr4c73beoq8g-a/togetherframe_db"
       - key: SECRET_KEY
-        generateValue: true
+        value: "togetherframe-prod-secret-2026"
       - key: PYTHON_VERSION
         value: "3.12.8"
