@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from config import settings
@@ -6,8 +7,8 @@ from config import settings
 def _make_engine():
     url = settings.DATABASE_URL
     kwargs = {"pool_pre_ping": True, "pool_recycle": 3600}
-    if url.startswith("mysql"):
-        kwargs["pool_recycle"] = 3600
+    if "tidbcloud.com" in url:
+        kwargs["connect_args"] = {"ssl": {"fake_flag_to_enable_tls": True}}
     return create_engine(url, **kwargs)
 
 
