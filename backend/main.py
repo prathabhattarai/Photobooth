@@ -4,16 +4,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes_auth import router as auth_router
 from routes_memories import router as memories_router
 from config import settings
+from database import engine
+from models import Base
 
 app = FastAPI(title="TogetherFrame API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://togetherframe.vercel.app",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def on_startup():
+    Base.metadata.create_all(bind=engine)
+
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(memories_router, prefix="/api")

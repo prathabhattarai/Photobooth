@@ -2,7 +2,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from config import settings
 
-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
+
+def _make_engine():
+    url = settings.DATABASE_URL
+    kwargs = {"pool_pre_ping": True, "pool_recycle": 3600}
+    if url.startswith("mysql"):
+        kwargs["pool_recycle"] = 3600
+    return create_engine(url, **kwargs)
+
+
+engine = _make_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
