@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   title: "TogetherFrame — Miles Apart, One Cute Moment Together",
   description:
     "A cute virtual photobooth and digital memory scrapbook for long-distance couples. Capture sweet moments together, even when you're far apart.",
-  icons: { icon: "/favicon.ico" },
+  icons: { icon: "/favicon.svg" },
 };
 
 export default function RootLayout({

@@ -12,31 +12,96 @@ import {
   Video,
   VideoOff,
   Download,
-  Sparkles,
   Heart,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
-import { FRAMES } from "@/lib/constants";
 import { FrameType } from "@/lib/types";
 import { useApp } from "@/lib/store";
 import FloatingElements from "@/components/ui/FloatingElements";
-import {
-  LoveCapsule,
-  DistanceCounter,
-  SurpriseBox,
-  VirtualHug,
-  RandomWheel,
-  CouplePet,
-  SamePoseChallenge,
-  QuestionOfDay,
-  CoupleStreak,
-  DailyThemeDisplay,
-} from "@/components/features";
+import FrameLayoutSelector from "@/components/ui/FrameLayoutSelector";
+
+function composeLayout(photos: string[], layout: "1x4" | "2x2"): Promise<string> {
+  const W = 400;
+  const GAP = 6;
+  const PADDING = 10;
+  const innerW = W - PADDING * 2;
+  let H: number;
+  let cols: number;
+  let rows: number;
+  let slotH: number;
+
+  if (layout === "1x4") {
+    cols = 1;
+    rows = 4;
+    slotH = innerW * 1.1;
+    H = PADDING * 2 + rows * slotH + (rows - 1) * GAP;
+  } else {
+    cols = 2;
+    rows = 2;
+    slotH = innerW / cols;
+    H = PADDING * 2 + rows * slotH + (rows - 1) * GAP;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return Promise.reject("Canvas context unavailable");
+
+  ctx.fillStyle = "#fdf2f8";
+  ctx.fillRect(0, 0, W, H);
+
+  const slotW = (innerW - (cols - 1) * GAP) / cols;
+
+  const drawPromises = photos.map((src, i) => {
+    return new Promise<void>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const col = layout === "1x4" ? 0 : i % cols;
+        const row = layout === "1x4" ? i : Math.floor(i / cols);
+        const x = PADDING + col * (slotW + GAP);
+        const y = PADDING + row * (slotH + GAP);
+
+        ctx.save();
+        const radius = 10;
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + slotW - radius, y);
+        ctx.quadraticCurveTo(x + slotW, y, x + slotW, y + radius);
+        ctx.lineTo(x + slotW, y + slotH - radius);
+        ctx.quadraticCurveTo(x + slotW, y + slotH, x + slotW - radius, y + slotH);
+        ctx.lineTo(x + radius, y + slotH);
+        ctx.quadraticCurveTo(x, y + slotH, x, y + slotH - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        ctx.clip();
+
+        const imgRatio = img.width / img.height;
+        const slotRatio = slotW / slotH;
+        let sx = 0, sy = 0, sw = img.width, sh = img.height;
+        if (imgRatio > slotRatio) {
+          sw = img.height * slotRatio;
+          sx = (img.width - sw) / 2;
+        } else {
+          sh = img.width / slotRatio;
+          sy = (img.height - sh) / 2;
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, x, y, slotW, slotH);
+        ctx.restore();
+        resolve();
+      };
+      img.onerror = () => resolve();
+      img.src = src;
+    });
+  });
+
+  return Promise.all(drawPromises).then(() => canvas.toDataURL("image/png"));
+}
 
 export default function BoothPage() {
   const router = useRouter();
-  const { user } = useApp();
+  const { user, partnerAvatar, frameLayout, setFrameLayout } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isActive, setIsActive] = useState(false);
@@ -46,9 +111,13 @@ export default function BoothPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
   const [partnerConnected] = useState(true);
-  const [showFeatures, setShowFeatures] = useState(false);
-  const [activeFeature, setActiveFeature] = useState<string | null>(null);
-  const frameScrollRef = useRef<HTMLDivElement>(null);
+  const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
+  const [captureIndex, setCaptureIndex] = useState<number | null>(null);
+  const [flashVisible, setFlashVisible] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
+  const captureTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const TOTAL_PHOTOS = 4;
 
   const startCamera = useCallback(async () => {
     try {
@@ -71,6 +140,7 @@ export default function BoothPage() {
     startCamera();
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
+      if (captureTimerRef.current) clearTimeout(captureTimerRef.current);
     };
   }, []);
 
@@ -94,24 +164,62 @@ export default function BoothPage() {
     return canvas.toDataURL("image/png");
   };
 
-  const startCountdown = () => {
-    setCountdown(3);
-    let count = 3;
-    const interval = setInterval(() => {
-      count--;
-      if (count > 0) {
+  const flash = () => {
+    setFlashVisible(true);
+    setTimeout(() => setFlashVisible(false), 300);
+  };
+
+  const runCaptureSequence = useCallback(async (layoutType: "1x4" | "2x2") => {
+    const photos: string[] = [];
+    for (let i = 0; i < TOTAL_PHOTOS; i++) {
+      setCaptureIndex(i);
+      await new Promise<void>((resolve) => {
+        let count = 3;
         setCountdown(count);
-      } else {
-        clearInterval(interval);
-        setCountdown(null);
-        const photo = capturePhoto();
-        if (photo) {
-          sessionStorage.setItem("capturedPhoto", photo);
-          sessionStorage.setItem("selectedFrame", selectedFrame);
-          router.push("/editor");
-        }
+        const interval = setInterval(() => {
+          count--;
+          if (count > 0) {
+            setCountdown(count);
+          } else {
+            clearInterval(interval);
+            setCountdown(null);
+            resolve();
+          }
+        }, 1000);
+      });
+      flash();
+      const photo = capturePhoto();
+      if (photo) {
+        photos.push(photo);
+        setCapturedPhotos([...photos]);
       }
-    }, 1000);
+    }
+    setCaptureIndex(null);
+    return photos;
+  }, []);
+
+  const startCountdown = async () => {
+    setCapturedPhotos([]);
+    const photos = await runCaptureSequence(frameLayout);
+    if (photos.length === 0) return;
+    setIsComposing(true);
+    try {
+      let finalImage: string;
+      if (photos.length === 1) {
+        finalImage = photos[0];
+      } else {
+        finalImage = await composeLayout(photos, frameLayout);
+      }
+      sessionStorage.setItem("capturedPhoto", finalImage);
+      sessionStorage.setItem("selectedFrame", selectedFrame);
+      router.push("/editor");
+    } catch {
+      sessionStorage.setItem("capturedPhoto", photos[0]);
+      sessionStorage.setItem("selectedFrame", selectedFrame);
+      router.push("/editor");
+    } finally {
+      setIsComposing(false);
+    }
   };
 
   const toggleCamera = () => {
@@ -132,12 +240,7 @@ export default function BoothPage() {
     }
   };
 
-  const scrollFrames = (dir: "left" | "right") => {
-    if (frameScrollRef.current) {
-      const amount = dir === "left" ? -200 : 200;
-      frameScrollRef.current.scrollBy({ left: amount, behavior: "smooth" });
-    }
-  };
+  const isCapturing = captureIndex !== null;
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -182,14 +285,15 @@ export default function BoothPage() {
               />
               {partnerConnected ? "Together" : "Waiting..."}
             </div>
+            {partnerAvatar && (
+              <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-lavender-200">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={partnerAvatar} alt="Partner" className="w-full h-full object-cover" />
+              </div>
+            )}
             <Link href="/gallery">
               <button className="px-3 py-1.5 rounded-full bg-white/60 hover:bg-white/80 text-xs font-medium text-warm-gray-500 pastel-shadow transition-colors">
                 Gallery
-              </button>
-            </Link>
-            <Link href="/collage">
-              <button className="px-3 py-1.5 rounded-full bg-white/60 hover:bg-white/80 text-xs font-medium text-warm-gray-500 pastel-shadow transition-colors">
-                Collage
               </button>
             </Link>
           </div>
@@ -246,7 +350,14 @@ export default function BoothPage() {
             <div className="aspect-[4/3] bg-gradient-to-br from-lavender-100 to-lavender-200 relative flex items-center justify-center">
               {partnerConnected ? (
                 <div className="text-center">
-                  <div className="text-7xl mb-3 animate-float">🐰</div>
+                  {partnerAvatar ? (
+                    <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-white/60 mx-auto mb-3 animate-float">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={partnerAvatar} alt="Partner" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="text-7xl mb-3 animate-float">💌</div>
+                  )}
                   <p className="text-lavender-400 font-bold text-sm">
                     Partner&apos;s Camera
                   </p>
@@ -268,6 +379,19 @@ export default function BoothPage() {
               <FrameOverlay frame={selectedFrame} side="right" />
             </div>
           </div>
+        </motion.div>
+
+        {/* Frame Layout Selector */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="mb-6"
+        >
+          <FrameLayoutSelector
+            value={frameLayout}
+            onChange={setFrameLayout}
+          />
         </motion.div>
 
         {/* Controls */}
@@ -301,22 +425,108 @@ export default function BoothPage() {
           {/* Capture Button */}
           <button
             onClick={startCountdown}
-            disabled={countdown !== null}
+            disabled={isCapturing || isComposing}
             className="relative group"
           >
-            <div className="absolute inset-0 rounded-full bg-pink-300 animate-ping opacity-20" />
-            <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-pink-400 to-pink-500 flex items-center justify-center text-white shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200">
-              <Camera className="w-8 h-8" />
+            {!isCapturing && !isComposing && (
+              <div className="absolute inset-0 rounded-full bg-pink-300 animate-ping opacity-20" />
+            )}
+            <div className={`relative w-20 h-20 rounded-full flex items-center justify-center text-white shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 ${
+              isComposing
+                ? "bg-gradient-to-br from-rose-400 to-rose-600"
+                : isCapturing
+                ? "bg-gradient-to-br from-pink-500 to-rose-500"
+                : "bg-gradient-to-br from-pink-400 to-pink-500"
+            }`}>
+              {isComposing ? (
+                <span className="w-8 h-8 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : isCapturing ? (
+                <Camera className="w-8 h-8 animate-pulse" />
+              ) : (
+                <Camera className="w-8 h-8" />
+              )}
             </div>
           </button>
 
           <button className="w-12 h-12 rounded-full bg-white/80 flex items-center justify-center text-gray-500 hover:bg-white pastel-shadow transition-all">
             <Download className="w-5 h-5" />
           </button>
-          <button className="w-12 h-12 rounded-full bg-white/80 flex items-center justify-center text-gray-500 hover:bg-white pastel-shadow transition-all">
-            <Sparkles className="w-5 h-5" />
-          </button>
         </motion.div>
+
+        {/* Capture progress thumbnails */}
+        <AnimatePresence>
+          {capturedPhotos.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center gap-3 mb-4"
+            >
+              {Array.from({ length: TOTAL_PHOTOS }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`relative w-16 h-12 rounded-lg overflow-hidden border-2 transition-all duration-300 ${
+                    i < capturedPhotos.length
+                      ? "border-pink-400 shadow-md shadow-pink-100"
+                      : i === captureIndex
+                      ? "border-pink-300 border-dashed animate-pulse"
+                      : "border-warm-gray-100"
+                  }`}
+                >
+                  {i < capturedPhotos.length ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={capturedPhotos[i]}
+                      alt={`Photo ${i + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-white/40">
+                      <span className="text-[10px] font-bold text-warm-gray-300">
+                        {i + 1}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Capture progress text */}
+        {isCapturing && captureIndex !== null && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center text-sm text-warm-gray-400 font-medium mb-4"
+          >
+            Photo {captureIndex + 1} of {TOTAL_PHOTOS}
+          </motion.p>
+        )}
+
+        {/* Composing indicator */}
+        {isComposing && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center text-sm text-rose-400 font-medium mb-4"
+          >
+            Composing your layout...
+          </motion.p>
+        )}
+
+        {/* Flash overlay */}
+        <AnimatePresence>
+          {flashVisible && (
+            <motion.div
+              initial={{ opacity: 0.8 }}
+              animate={{ opacity: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="fixed inset-0 z-50 bg-white pointer-events-none"
+            />
+          )}
+        </AnimatePresence>
 
         {/* Countdown Overlay */}
         <AnimatePresence>
@@ -339,167 +549,17 @@ export default function BoothPage() {
                   {countdown}
                 </div>
                 <p className="text-xl text-white/80 mt-4 handwriting">
-                  {countdown === 1 ? "Smile! 📸" : "Get ready..."}
+                  {countdown === 1
+                    ? isCapturing
+                      ? `Say cheese! 📸 (${(captureIndex ?? 0) + 1}/${TOTAL_PHOTOS})`
+                      : "Smile! 📸"
+                    : "Get ready..."}
                 </p>
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Frame Selector */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="glass-card rounded-3xl p-4"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-gray-600 text-sm">Choose a Frame</h3>
-            <button
-              onClick={() => scrollFrames("left")}
-              className="w-8 h-8 rounded-full bg-pink-50 hover:bg-pink-100 flex items-center justify-center transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4 text-pink-400" />
-            </button>
-          </div>
-          <div
-            ref={frameScrollRef}
-            className="flex gap-3 overflow-x-auto scrollbar-hide pb-2"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {FRAMES.map((frame) => (
-              <button
-                key={frame.id}
-                onClick={() => setSelectedFrame(frame.id)}
-                className={`flex-shrink-0 w-24 p-3 rounded-2xl text-center transition-all duration-200 ${
-                  selectedFrame === frame.id
-                    ? "bg-pink-100 ring-3 ring-pink-400 scale-105"
-                    : "bg-white/60 hover:bg-pink-50 hover:scale-102"
-                }`}
-              >
-                <div className="text-2xl mb-1">{frame.emoji}</div>
-                <div className="text-xs font-bold text-gray-600 truncate">
-                  {frame.name}
-                </div>
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => scrollFrames("right")}
-            className="absolute right-4 top-1/2 w-8 h-8 rounded-full bg-pink-50 hover:bg-pink-100 items-center justify-center transition-colors hidden"
-          >
-            <ChevronRight className="w-4 h-4 text-pink-400" />
-          </button>
-        </motion.div>
-
-        {/* Quick Actions Row */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.42 }}
-          className="mt-4 flex gap-3 justify-center"
-        >
-          <Link href="/collage">
-            <button className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white text-xs font-medium flex items-center gap-2 hover:shadow-lg hover:shadow-rose-200/30 transition-all">
-              Create Collage
-            </button>
-          </Link>
-          <Link href="/gallery">
-            <button className="px-5 py-2.5 rounded-xl bg-white/60 hover:bg-white/80 text-warm-gray-500 text-xs font-medium flex items-center gap-2 pastel-shadow transition-all border border-warm-gray-100">
-              Gallery
-            </button>
-          </Link>
-        </motion.div>
-
-        {/* Features Toggle */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.45 }}
-          className="mt-4"
-        >
-          <button
-            onClick={() => setShowFeatures(!showFeatures)}
-            className="w-full glass-card rounded-2xl px-6 py-4 flex items-center justify-between hover:bg-white/70 transition-all"
-          >
-            <div className="flex items-center gap-3">
-              <Heart className="w-5 h-5 text-rose-400" fill="currentColor" />
-              <div className="text-left">
-                <h3 className="font-serif font-bold text-warm-gray-700 text-sm">Intimate Features</h3>
-                <p className="text-xs text-warm-gray-400">Love Letters, Virtual Embrace, Daily Questions & more</p>
-              </div>
-            </div>
-            <motion.span
-              animate={{ rotate: showFeatures ? 180 : 0 }}
-              className="text-gray-400 text-lg"
-            >
-              ▼
-            </motion.span>
-          </button>
-
-          <AnimatePresence>
-            {showFeatures && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden mt-3"
-              >
-                {/* Feature quick actions */}
-                <div className="grid grid-cols-5 gap-2 mb-4">
-                  {[
-                    { id: "capsule", emoji: "💌", label: "Love Letter" },
-                    { id: "surprise", emoji: "🎁", label: "Surprise" },
-                    { id: "hug", emoji: "🫂", label: "Virtual Hug" },
-                    { id: "pet", emoji: "🐾", label: "Our Pet" },
-                    { id: "wheel", emoji: "🎡", label: "Spin Wheel" },
-                    { id: "distance", emoji: "🌍", label: "Distance" },
-                    { id: "pose", emoji: "📸", label: "Pose" },
-                    { id: "question", emoji: "💭", label: "Question" },
-                    { id: "streak", emoji: "🔥", label: "Streak" },
-                    { id: "theme", emoji: "🎨", label: "Theme" },
-                  ].map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => setActiveFeature(activeFeature === f.id ? null : f.id)}
-                      className={`flex flex-col items-center gap-1 p-3 rounded-2xl transition-all ${
-                        activeFeature === f.id
-                          ? "bg-pink-100 ring-2 ring-pink-400 scale-105"
-                          : "bg-white/60 hover:bg-pink-50"
-                      }`}
-                    >
-                      <span className="text-xl">{f.emoji}</span>
-                      <span className="text-[10px] font-bold text-gray-500">{f.label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Active feature panel */}
-                <AnimatePresence mode="wait">
-                  {activeFeature && (
-                    <motion.div
-                      key={activeFeature}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                    >
-                      {activeFeature === "capsule" && <LoveCapsule />}
-                      {activeFeature === "surprise" && <SurpriseBox />}
-                      {activeFeature === "hug" && <VirtualHug />}
-                      {activeFeature === "pet" && <CouplePet />}
-                      {activeFeature === "wheel" && <RandomWheel />}
-                      {activeFeature === "distance" && <DistanceCounter />}
-                      {activeFeature === "pose" && <SamePoseChallenge />}
-                      {activeFeature === "question" && <QuestionOfDay />}
-                      {activeFeature === "streak" && <CoupleStreak />}
-                      {activeFeature === "theme" && <DailyThemeDisplay />}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
       </div>
     </div>
   );

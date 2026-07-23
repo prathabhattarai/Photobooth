@@ -49,6 +49,15 @@ export interface Frame {
   description: string;
 }
 
+export type FrameLayoutType = "1x4" | "2x2";
+
+export interface FrameLayout {
+  id: FrameLayoutType;
+  name: string;
+  description: string;
+  slots: number;
+}
+
 export interface Sticker {
   id: string;
   emoji: string;

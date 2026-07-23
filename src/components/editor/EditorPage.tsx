@@ -241,7 +241,7 @@ export default function EditorPage() {
                 />
 
                 {/* Photo */}
-                <div className="relative">
+                <div className="relative max-h-[60vh] overflow-hidden rounded-2xl">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photoUrl}
@@ -249,6 +249,7 @@ export default function EditorPage() {
                     className="w-full rounded-2xl"
                     style={{
                       filter: getFilterCSS(editorState.filter),
+                      objectFit: "contain",
                     }}
                   />
 

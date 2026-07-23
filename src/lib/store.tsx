@@ -11,6 +11,7 @@ import {
 import {
   Memory,
   FrameType,
+  FrameLayoutType,
   PhotoEditorState,
   PlacedSticker,
 } from "./types";
@@ -20,11 +21,14 @@ interface AppState {
   user: { id: string; name: string; email: string; avatar: string } | null;
   isAuthenticated: boolean;
   currentRoomCode: string | null;
+  partnerAvatar: string;
+  frameLayout: FrameLayoutType;
   memories: Memory[];
   editorState: PhotoEditorState;
-  collagePhotos: string[];
   setUser: (user: { id: string; name: string; email: string; avatar: string } | null) => void;
   setCurrentRoomCode: (code: string | null) => void;
+  setPartnerAvatar: (avatar: string) => void;
+  setFrameLayout: (layout: FrameLayoutType) => void;
   loadMemories: (roomCode: string) => Promise<void>;
   addMemory: (memory: Memory) => void;
   deleteMemoryById: (id: string) => Promise<void>;
@@ -33,7 +37,6 @@ interface AppState {
   addSticker: (sticker: PlacedSticker) => void;
   removeSticker: (id: string) => void;
   resetEditor: () => void;
-  setCollagePhotos: (photos: string[]) => void;
   logout: () => void;
 }
 
@@ -59,7 +62,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [editorState, setEditorState] = useState<PhotoEditorState>({
     ...defaultEditorState,
   });
-  const [collagePhotos, setCollagePhotosState] = useState<string[]>([]);
+  const [partnerAvatar, setPartnerAvatarState] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("tf_partner_avatar") || "";
+    }
+    return "";
+  });
+  const [frameLayout, setFrameLayoutState] = useState<FrameLayoutType>(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("tf_frame_layout") as FrameLayoutType) || "1x4";
+    }
+    return "1x4";
+  });
 
   useEffect(() => {
     if (isLoggedIn()) {
@@ -70,6 +84,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setUser = useCallback((u: { id: string; name: string; email: string; avatar: string } | null) => {
     setUserState(u);
+  }, []);
+
+  const setPartnerAvatar = useCallback((avatar: string) => {
+    setPartnerAvatarState(avatar);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("tf_partner_avatar", avatar);
+    }
+  }, []);
+
+  const setFrameLayout = useCallback((layout: FrameLayoutType) => {
+    setFrameLayoutState(layout);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("tf_frame_layout", layout);
+    }
   }, []);
 
   const loadMemories = useCallback(async (roomCode: string) => {
@@ -148,15 +176,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEditorState({ ...defaultEditorState });
   }, []);
 
-  const setCollagePhotos = useCallback((photos: string[]) => {
-    setCollagePhotosState(photos);
-  }, []);
-
   const logout = useCallback(() => {
     apiLogout();
     setUserState(null);
     setCurrentRoomCode(null);
+    setPartnerAvatarState("");
+    setFrameLayoutState("1x4");
     setMemories([]);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("tf_partner_avatar");
+      localStorage.removeItem("tf_frame_layout");
+    }
   }, []);
 
   return (
@@ -165,11 +195,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         currentRoomCode,
+        partnerAvatar,
+        frameLayout,
         memories,
         editorState,
-        collagePhotos,
         setUser,
         setCurrentRoomCode,
+        setPartnerAvatar,
+        setFrameLayout,
         loadMemories,
         addMemory,
         deleteMemoryById,
@@ -178,7 +211,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addSticker,
         removeSticker,
         resetEditor,
-        setCollagePhotos,
         logout,
       }}
     >

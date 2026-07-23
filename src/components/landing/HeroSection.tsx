@@ -26,17 +26,6 @@ const steps = [
   },
 ];
 
-const features = [
-  { icon: "💌", title: "Love Letters", desc: "Sealed messages for later" },
-  { icon: "🫂", title: "Virtual Embrace", desc: "Feel close, always" },
-  { icon: "🌍", title: "Miles Between", desc: "Closer than you think" },
-  { icon: "📸", title: "Photo Booth", desc: "Captured together" },
-  { icon: "🎨", title: "Daily Mood", desc: "Share how you feel" },
-  { icon: "🔥", title: "Memory Streak", desc: "Never miss a day" },
-  { icon: "💭", title: "Deep Questions", desc: "Know each other more" },
-  { icon: "⏰", title: "Time Together", desc: "Every second counts" },
-];
-
 export default function HeroSection() {
   return (
     <>
@@ -197,46 +186,6 @@ export default function HeroSection() {
                   {step.title}
                 </h3>
                 <p className="text-warm-gray-400 text-sm leading-relaxed">{step.description}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features Showcase */}
-      <section className="relative py-28 px-4">
-        <div className="max-w-5xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-center mb-16"
-          >
-            <span className="text-xs font-medium text-gold tracking-[0.3em] uppercase mb-4 block">
-              Thoughtfully Designed
-            </span>
-            <h2 className="text-4xl md:text-5xl font-serif font-bold text-warm-gray-800 mb-4">
-              Everything You <span className="font-script text-rose-500 italic">Need</span>
-            </h2>
-            <p className="text-warm-gray-400 text-lg mt-4">
-              Subtle features that deepen your connection
-            </p>
-            <div className="w-16 h-px bg-gold/40 mx-auto mt-4" />
-          </motion.div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
-            {features.map((feat, i) => (
-              <motion.div
-                key={feat.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.06 }}
-                className="glass-card rounded-2xl p-5 text-center hover:shadow-md transition-all duration-500 cursor-default group"
-              >
-                <div className="text-2xl mb-3 group-hover:scale-110 transition-transform duration-300">{feat.icon}</div>
-                <h4 className="font-serif font-bold text-warm-gray-700 text-sm mb-1">{feat.title}</h4>
-                <p className="text-xs text-warm-gray-400">{feat.desc}</p>
               </motion.div>
             ))}
           </div>
