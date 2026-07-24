@@ -30,6 +30,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   const pendingCandidateRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingMembersRef = useRef<string[]>([]);
   const negotiatingRef = useRef(false);
+  const answeringRef = useRef(false);
 
   localStreamRef.current = localStream;
 
@@ -55,7 +56,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   }, [sendWs]);
 
   const createAndSendOffer = useCallback(async (pc: RTCPeerConnection) => {
-    if (negotiatingRef.current || pc.signalingState !== "stable") return;
+    if (pc.signalingState !== "stable") return;
     negotiatingRef.current = true;
     try {
       const offer = await pc.createOffer();
@@ -78,21 +79,33 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
     };
 
     pc.ontrack = (e) => {
-      if (e.streams[0]) {
+      if (e.streams && e.streams[0]) {
         setRemoteStream(e.streams[0]);
         setConnected(true);
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (state === "failed" || state === "closed" || state === "disconnected") {
+        setConnected(false);
+        setRemoteStream(null);
+      }
+      if (state === "connected" || state === "completed") {
+        setConnected(true);
+      }
+    };
+
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+      if (pc.connectionState === "disconnected" || pc.connectionState === "failed" || pc.connectionState === "closed") {
         setConnected(false);
         setRemoteStream(null);
       }
     };
 
     pc.onnegotiationneeded = () => {
-      if (!negotiatingRef.current && pc.signalingState === "stable") {
+      if (negotiatingRef.current || answeringRef.current) return;
+      if (pc.signalingState === "stable") {
         createAndSendOffer(pc);
       }
     };
@@ -108,6 +121,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   }, [sendWs, createAndSendOffer]);
 
   const handleRemoteOffer = useCallback(async (offer: RTCSessionDescriptionInit) => {
+    answeringRef.current = true;
     negotiatingRef.current = true;
     try {
       let pc = pcRef.current;
@@ -125,12 +139,18 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
       await pc.setLocalDescription(answer);
       sendWs({ type: "answer", answer: pc.localDescription, peerId: peerIdRef.current });
 
-      pendingCandidateRef.current.forEach((c) => {
-        pc!.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-      });
+      const candidates = [...pendingCandidateRef.current];
       pendingCandidateRef.current = [];
+      for (const c of candidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(c));
+        } catch {
+          try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+        }
+      }
     } finally {
       negotiatingRef.current = false;
+      setTimeout(() => { answeringRef.current = false; }, 0);
     }
   }, [createPeerConnection, sendWs]);
 
@@ -176,6 +196,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
         pendingCandidateRef.current = [];
         pendingMembersRef.current = [];
         negotiatingRef.current = false;
+        answeringRef.current = false;
       }
 
       if (msg.type === "offer" && msg.peerId !== peerIdRef.current) {
@@ -202,7 +223,13 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
           } else {
             pendingCandidateRef.current.push(msg.candidate);
           }
-        } catch {}
+        } catch {
+          try {
+            if (pcRef.current && pcRef.current.remoteDescription) {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            }
+          } catch {}
+        }
       }
 
       if (msg.type === "photo_captured" && msg.peerId !== peerIdRef.current) {
@@ -221,6 +248,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
         pcRef.current = null;
       }
       negotiatingRef.current = false;
+      answeringRef.current = false;
       pendingOfferRef.current = null;
       pendingCandidateRef.current = [];
       pendingMembersRef.current = [];
