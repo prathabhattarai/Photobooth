@@ -132,17 +132,25 @@ export default function BoothPage() {
   const startCamera = useCallback(async () => {
     try {
       setCameraError(null);
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-        audio: true,
-      });
+      let mediaStream: MediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: "user" },
+          audio: true,
+        });
+      } catch {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: "user" },
+          audio: false,
+        });
+      }
       setStream(mediaStream);
       setIsActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
     } catch {
-      setCameraError("Could not access camera. Please allow camera permissions.");
+      setCameraError("Could not access camera. Please allow camera permissions in your browser settings.");
     }
   }, []);
 

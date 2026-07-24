@@ -21,8 +21,23 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
   const [peerCount, setPeerCount] = useState(0);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const isInitiatorRef = useRef(false);
   const gotAnswerRef = useRef(false);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const hasInitiatedRef = useRef(false);
+
+  localStreamRef.current = localStream;
+
+  const addTracksToPC = useCallback((pc: RTCPeerConnection, stream: MediaStream) => {
+    const senders = pc.getSenders();
+    stream.getTracks().forEach((track) => {
+      const existing = senders.find((s) => s.track?.kind === track.kind);
+      if (existing) {
+        existing.replaceTrack(track);
+      } else {
+        pc.addTrack(track, stream);
+      }
+    });
+  }, []);
 
   const createPeerConnection = useCallback(() => {
     if (pcRef.current) return pcRef.current;
@@ -33,7 +48,6 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
         wsRef.current.send(JSON.stringify({
           type: "ice-candidate",
           candidate: e.candidate,
-          sender: userName,
         }));
       }
     };
@@ -52,15 +66,13 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
       }
     };
 
-    if (localStream) {
-      localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, localStream);
-      });
+    if (localStreamRef.current) {
+      addTracksToPC(pc, localStreamRef.current);
     }
 
     pcRef.current = pc;
     return pc;
-  }, [localStream, userName]);
+  }, [addTracksToPC]);
 
   const handleOffer = useCallback(async (offer: RTCSessionDescriptionInit, sender: string) => {
     if (sender === userName) return;
@@ -72,7 +84,6 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
       wsRef.current.send(JSON.stringify({
         type: "answer",
         answer,
-        sender: userName,
       }));
     }
   }, [userName, createPeerConnection]);
@@ -96,8 +107,9 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
     }
   }, [userName]);
 
+  // Connect WebSocket immediately, regardless of localStream
   useEffect(() => {
-    if (!roomCode || !userName || !localStream) return;
+    if (!roomCode || !userName) return;
 
     const backendHost = "togetherframe-backend.onrender.com";
     const wsProtocol = "wss:";
@@ -106,7 +118,7 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "join", sender: userName }));
+      ws.send(JSON.stringify({ type: "join" }));
     };
 
     ws.onmessage = async (event) => {
@@ -114,18 +126,26 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
 
       if (msg.type === "user_joined" && msg.sender !== userName) {
         setPeerCount(msg.members);
-        isInitiatorRef.current = true;
+        hasInitiatedRef.current = true;
         gotAnswerRef.current = false;
 
         const pc = createPeerConnection();
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: "offer",
-            offer,
-            sender: userName,
-          }));
+
+        if (localStreamRef.current) {
+          addTracksToPC(pc, localStreamRef.current);
+        }
+
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: "offer",
+              offer,
+            }));
+          }
+        } catch (err) {
+          console.error("Failed to create offer:", err);
         }
       }
 
@@ -137,6 +157,7 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
           pcRef.current.close();
           pcRef.current = null;
           gotAnswerRef.current = false;
+          hasInitiatedRef.current = false;
         }
       }
 
@@ -163,7 +184,24 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
         pcRef.current = null;
       }
     };
-  }, [roomCode, userName, localStream, createPeerConnection, handleOffer, handleAnswer, handleIceCandidate]);
+  }, [roomCode, userName, createPeerConnection, addTracksToPC, handleOffer, handleAnswer, handleIceCandidate]);
+
+  // When localStream changes, add tracks to existing peer connection and renegotiate
+  useEffect(() => {
+    if (!localStream || !pcRef.current) return;
+    addTracksToPC(pcRef.current, localStream);
+
+    if (pcRef.current.signalingState === "stable" && hasInitiatedRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      pcRef.current.createOffer().then((offer) => pcRef.current!.setLocalDescription(offer)).then(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN && pcRef.current) {
+          wsRef.current.send(JSON.stringify({
+            type: "offer",
+            offer: pcRef.current.localDescription,
+          }));
+        }
+      }).catch(() => {});
+    }
+  }, [localStream, addTracksToPC]);
 
   return { remoteStream, connected, peerCount };
 }
