@@ -1,6 +1,6 @@
 const API_BASE = "/api";
 
-async function request(path: string, options: RequestInit = {}) {
+async function request(path: string, options: RequestInit = {}, retries = 2): Promise<Record<string, unknown>> {
   const token = typeof window !== "undefined" ? localStorage.getItem("tf_token") : null;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -9,12 +9,20 @@ async function request(path: string, options: RequestInit = {}) {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || "API error");
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || "API error");
+    }
+    return res.json();
+  } catch (err) {
+    if (retries > 0 && err instanceof TypeError) {
+      await new Promise((r) => setTimeout(r, 2000));
+      return request(path, options, retries - 1);
+    }
+    throw err;
   }
-  return res.json();
 }
 
 export async function register(name: string, email: string, password: string, avatar: string) {
