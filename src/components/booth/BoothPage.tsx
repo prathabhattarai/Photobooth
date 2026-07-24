@@ -206,14 +206,33 @@ export default function BoothPage() {
   const capturePhoto = (): string | null => {
     const video = videoRef.current;
     if (!video) return null;
+    const remoteVideo = remoteVideoRef.current;
+    const hasRemote = !!(remoteVideo && remoteVideo.srcObject && remoteVideo.readyState >= 2);
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    if (hasRemote) {
+      canvas.width = vw * 2;
+      canvas.height = vh;
+    } else {
+      canvas.width = vw;
+      canvas.height = vh;
+    }
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0);
+    if (hasRemote) {
+      const halfW = canvas.width / 2;
+      ctx.save();
+      ctx.translate(halfW, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, halfW, canvas.height);
+      ctx.restore();
+      ctx.drawImage(remoteVideo, halfW, 0, halfW, canvas.height);
+    } else {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+    }
     return canvas.toDataURL("image/png");
   };
 
