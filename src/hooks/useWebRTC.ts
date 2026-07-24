@@ -13,9 +13,10 @@ interface UseWebRTCProps {
   roomCode: string;
   userName: string;
   localStream: MediaStream | null;
+  onPhotoReceived?: (photoDataUrl: string) => void;
 }
 
-export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
+export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: UseWebRTCProps) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connected, setConnected] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
@@ -31,12 +32,19 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
 
   localStreamRef.current = localStream;
 
+  const onPhotoReceivedRef = useRef(onPhotoReceived);
+  onPhotoReceivedRef.current = onPhotoReceived;
+
   const sendWs = useCallback((data: Record<string, unknown>) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(data));
     }
   }, []);
+
+  const sendPhoto = useCallback((photoDataUrl: string) => {
+    sendWs({ type: "photo_captured", photoData: photoDataUrl, peerId: peerIdRef.current });
+  }, [sendWs]);
 
   const createAndSendOffer = useCallback(async (pc: RTCPeerConnection) => {
     if (negotiatingRef.current || pc.signalingState !== "stable") return;
@@ -183,6 +191,10 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
           }
         } catch {}
       }
+
+      if (msg.type === "photo_captured" && msg.peerId !== peerIdRef.current) {
+        onPhotoReceivedRef.current?.(msg.photoData);
+      }
     };
 
     return () => {
@@ -222,5 +234,5 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
     }
   }, [localStream, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
-  return { remoteStream, connected, peerCount };
+  return { remoteStream, connected, peerCount, sendPhoto };
 }

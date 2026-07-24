@@ -26,22 +26,23 @@ type EditorTab = "frames" | "stickers" | "text" | "filters";
 export default function EditorPage() {
   const router = useRouter();
   const { saveMemoryToAPI, currentRoomCode, editorState, updateEditorState } = useApp();
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [localPhotoUrl, setLocalPhotoUrl] = useState<string | null>(null);
+  const [partnerPhotoUrl, setPartnerPhotoUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<EditorTab>("frames");
   const [textInput, setTextInput] = useState("");
   const [caption, setCaption] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const hasPartner = !!partnerPhotoUrl;
+
   useEffect(() => {
-    const photo = sessionStorage.getItem("capturedPhoto");
+    const local = sessionStorage.getItem("capturedPhoto");
+    const partner = sessionStorage.getItem("partnerPhoto");
     const frame = sessionStorage.getItem("selectedFrame") as FrameType | null;
-    if (photo) {
-      setPhotoUrl(photo);
-    }
-    if (frame) {
-      updateEditorState({ selectedFrame: frame });
-    }
+    if (local) setLocalPhotoUrl(local);
+    if (partner) setPartnerPhotoUrl(partner);
+    if (frame) updateEditorState({ selectedFrame: frame });
   }, [updateEditorState]);
 
   const handleAddSticker = (emoji: string) => {
@@ -84,61 +85,28 @@ export default function EditorPage() {
   };
 
   const handleDownload = useCallback(async () => {
-    if (!photoUrl) return;
-    const canvas = document.createElement("canvas");
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const filterCSS = getFilterCSS(editorState.filter);
-      if (filterCSS) {
-        ctx.filter = filterCSS;
-      }
-      ctx.drawImage(img, 0, 0);
-      ctx.filter = "none";
-
-      // Draw text overlay
-      if (textInput) {
-        ctx.font = `bold ${Math.floor(img.width * 0.06)}px Caveat, cursive`;
-        ctx.fillStyle = "white";
-        ctx.shadowColor = "rgba(0,0,0,0.5)";
-        ctx.shadowBlur = 8;
-        ctx.textAlign = "center";
-        ctx.fillText(textInput, img.width / 2, img.height * 0.9);
-        ctx.shadowBlur = 0;
-      }
-
-      // Draw stickers
-      editorState.stickers.forEach((s) => {
-        ctx.font = `${Math.floor(img.width * 0.08)}px serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(
-          s.emoji,
-          (s.x / 100) * img.width,
-          (s.y / 100) * img.height
-        );
-      });
-
-      const link = document.createElement("a");
-      link.download = `togetherframe-${Date.now()}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    };
-
-    img.src = photoUrl;
-  }, [photoUrl, editorState, textInput]);
+    if (!localPhotoUrl) return;
+    const finalImage = await composeCoupleFrame(
+      localPhotoUrl, partnerPhotoUrl, editorState.selectedFrame,
+      editorState.stickers, textInput, getFilterCSS(editorState.filter)
+    );
+    const link = document.createElement("a");
+    link.download = `togetherframe-${Date.now()}.png`;
+    link.href = finalImage;
+    link.click();
+  }, [localPhotoUrl, partnerPhotoUrl, editorState, textInput]);
 
   const handleSave = async () => {
-    if (!photoUrl) return;
+    if (!localPhotoUrl) return;
+    const finalImage = await composeCoupleFrame(
+      localPhotoUrl, partnerPhotoUrl, editorState.selectedFrame,
+      editorState.stickers, textInput, getFilterCSS(editorState.filter)
+    );
     const captionText = caption || editorState.caption || "Our cute moment 💕";
     const roomCode = currentRoomCode || "local";
-    await saveMemoryToAPI(roomCode, photoUrl, captionText, editorState.selectedFrame);
+    await saveMemoryToAPI(roomCode, finalImage, captionText, editorState.selectedFrame);
     sessionStorage.removeItem("capturedPhoto");
+    sessionStorage.removeItem("partnerPhoto");
     sessionStorage.removeItem("selectedFrame");
     router.push("/gallery");
   };
@@ -166,7 +134,7 @@ export default function EditorPage() {
     "same-moment": "from-lavender-50 to-lavender-100",
   };
 
-  if (!photoUrl) {
+  if (!localPhotoUrl) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -240,17 +208,13 @@ export default function EditorPage() {
                   }`}
                 />
 
-                {/* Photo */}
+                {/* Photo(s) */}
                 <div className="relative max-h-[60vh] overflow-hidden rounded-2xl">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photoUrl}
-                    alt="Captured photo"
-                    className="w-full rounded-2xl"
-                    style={{
-                      filter: getFilterCSS(editorState.filter),
-                      objectFit: "contain",
-                    }}
+                  <CoupleFramePreview
+                    localPhoto={localPhotoUrl}
+                    partnerPhoto={partnerPhotoUrl}
+                    frame={editorState.selectedFrame}
+                    filter={getFilterCSS(editorState.filter)}
                   />
 
                   {/* Stickers overlay */}
@@ -283,7 +247,7 @@ export default function EditorPage() {
                   )}
 
                   {/* Frame decoration */}
-                  <FrameDecoration frame={editorState.selectedFrame} />
+                  <FrameDecoration frame={editorState.selectedFrame} hasPartner={hasPartner} />
                 </div>
               </div>
 
@@ -519,7 +483,353 @@ export default function EditorPage() {
   );
 }
 
-function FrameDecoration({ frame }: { frame: FrameType }) {
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+async function composeCoupleFrame(
+  localPhoto: string,
+  partnerPhoto: string | null,
+  frame: FrameType,
+  stickers: PlacedSticker[],
+  text: string,
+  filter: string
+): Promise<string> {
+  const localImg = await loadImage(localPhoto);
+  const partnerImg = partnerPhoto ? await loadImage(partnerPhoto) : null;
+
+  const W = partnerImg ? 800 : localImg.width;
+  const H = partnerImg ? Math.max(localImg.height, partnerImg.height) : localImg.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return localPhoto;
+
+  if (filter) ctx.filter = filter;
+
+  if (partnerImg) {
+    const halfW = W / 2;
+    const drawW = halfW - 10;
+    const drawH = H - 20;
+
+    const localRatio = localImg.width / localImg.height;
+    const partnerRatio = partnerImg.width / partnerImg.height;
+    const slotRatio = drawW / drawH;
+
+    let lsx = 0, lsy = 0, lsw = localImg.width, lsh = localImg.height;
+    if (localRatio > slotRatio) { lsw = localImg.height * slotRatio; lsx = (localImg.width - lsw) / 2; }
+    else { lsh = localImg.width / slotRatio; lsy = (localImg.height - lsh) / 2; }
+
+    let psx = 0, psy = 0, psw = partnerImg.width, psh = partnerImg.height;
+    if (partnerRatio > slotRatio) { psw = partnerImg.height * slotRatio; psx = (partnerImg.width - psw) / 2; }
+    else { psh = partnerImg.width / slotRatio; psy = (partnerImg.height - psh) / 2; }
+
+    ctx.drawImage(localImg, lsx, lsy, lsw, lsh, 5, 10, drawW, drawH);
+    ctx.drawImage(partnerImg, psx, psy, psw, psh, halfW + 5, 10, drawW, drawH);
+  } else {
+    ctx.drawImage(localImg, 0, 0);
+  }
+
+  ctx.filter = "none";
+
+  if (text) {
+    const fontSize = Math.floor(W * 0.04);
+    ctx.font = `bold ${fontSize}px Caveat, cursive`;
+    ctx.fillStyle = "white";
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 8;
+    ctx.textAlign = "center";
+    ctx.fillText(text, W / 2, H * 0.92);
+    ctx.shadowBlur = 0;
+  }
+
+  stickers.forEach((s) => {
+    const fontSize = Math.floor(W * 0.05);
+    ctx.font = `${fontSize}px serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(s.emoji, (s.x / 100) * W, (s.y / 100) * H);
+  });
+
+  return canvas.toDataURL("image/png");
+}
+
+function CoupleFramePreview({
+  localPhoto,
+  partnerPhoto,
+  frame,
+  filter,
+}: {
+  localPhoto: string | null;
+  partnerPhoto: string | null;
+  frame: FrameType;
+  filter?: string;
+}) {
+  if (!localPhoto) return null;
+
+  if (!partnerPhoto) {
+    return (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img
+        src={localPhoto}
+        alt="Your photo"
+        className="w-full rounded-2xl"
+        style={{ filter, objectFit: "contain" }}
+      />
+    );
+  }
+
+  const bgClass: Record<FrameType, string> = {
+    polaroid: "from-gray-50 to-gray-100",
+    "photobooth-strip": "from-pink-50 to-rose-100",
+    scrapbook: "from-amber-50 to-amber-100",
+    "pink-heart": "from-pink-100 to-rose-100",
+    "miles-apart": "from-blue-50 to-cyan-50",
+    "cloud-stars": "from-blue-50 to-indigo-100",
+    "bear-bunny": "from-amber-50 to-orange-50",
+    "love-letter": "from-red-50 to-pink-100",
+    "same-moment": "from-lavender-50 to-lavender-100",
+  };
+
+  const photoStyle = filter ? { filter } : {};
+
+  switch (frame) {
+    case "polaroid":
+      return (
+        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+          <div className="bg-white p-2 pb-10 shadow-lg rotate-[-2deg] rounded-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+            <p className="text-center text-[10px] text-gray-400 mt-1 font-serif">You</p>
+          </div>
+          <div className="bg-white p-2 pb-10 shadow-lg rotate-[2deg] rounded-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+            <p className="text-center text-[10px] text-gray-400 mt-1 font-serif">Partner</p>
+          </div>
+        </div>
+      );
+    case "photobooth-strip":
+      return (
+        <div className={`flex gap-3 p-4 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+          <div className="bg-white rounded-xl p-2 shadow-md border-2 border-pink-200/50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={localPhoto} alt="You" className="w-40 h-52 object-cover rounded-lg" style={photoStyle} />
+          </div>
+          <div className="bg-white rounded-xl p-2 shadow-md border-2 border-pink-200/50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={partnerPhoto} alt="Partner" className="w-40 h-52 object-cover rounded-lg" style={photoStyle} />
+          </div>
+        </div>
+      );
+    case "scrapbook":
+      return (
+        <div className={`flex gap-6 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+          <div className="relative rotate-[-3deg] shadow-md">
+            <div className="absolute -top-2 left-4 w-12 h-5 bg-amber-200/70 rotate-[-2deg] rounded" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
+          </div>
+          <div className="relative rotate-[2deg] shadow-md">
+            <div className="absolute -top-2 right-4 w-12 h-5 bg-pink-200/70 rotate-[3deg] rounded" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
+          </div>
+        </div>
+      );
+    case "pink-heart":
+      return (
+        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-pink-300/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+          </div>
+          <div className="text-3xl">💕</div>
+          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-pink-300/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+          </div>
+        </div>
+      );
+    case "miles-apart":
+      return (
+        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${bgClass[frame]} min-h-[300px]`}>
+          <div className="bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-blue-400 mb-2">
+            Miles Apart, Together at Heart 💕
+          </div>
+          <div className="flex gap-3">
+            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+            </div>
+            <div className="flex flex-col items-center justify-center gap-1">
+              <span className="text-lg">🌍</span>
+              <span className="text-lg">💕</span>
+            </div>
+            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+            </div>
+          </div>
+        </div>
+      );
+    case "cloud-stars":
+      return (
+        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+          <div className="text-xl absolute top-3 left-4">⭐</div>
+          <div className="text-xl absolute top-3 right-4">☁️</div>
+          <div className="relative rounded-2xl overflow-hidden shadow-lg">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover rounded-2xl" style={photoStyle} />
+          </div>
+          <div className="text-xl">🌙</div>
+          <div className="relative rounded-2xl overflow-hidden shadow-lg">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover rounded-2xl" style={photoStyle} />
+          </div>
+        </div>
+      );
+    case "bear-bunny":
+      return (
+        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+          <div className="text-2xl">🐻</div>
+          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+          </div>
+          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+          </div>
+          <div className="text-2xl">🐰</div>
+        </div>
+      );
+    case "love-letter":
+      return (
+        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${bgClass[frame]} min-h-[300px]`}>
+          <div className="flex gap-1 text-xl">
+            <span>💌</span><span>💝</span>
+          </div>
+          <div className="flex gap-3">
+            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+            </div>
+            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+            </div>
+          </div>
+          <p className="text-xs handwriting text-red-300">With all my love</p>
+        </div>
+      );
+    case "same-moment":
+      return (
+        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${bgClass[frame]} min-h-[300px]`}>
+          <div className="bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-lavender-400 mb-1">
+            Same Moment 🕐
+          </div>
+          <div className="flex gap-3">
+            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+              <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">You</div>
+            </div>
+            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+              <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">Partner</div>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+          </p>
+        </div>
+      );
+    default:
+      return (
+        <div className="flex gap-4 p-4 justify-center items-center min-h-[300px]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={localPhoto} alt="You" className="w-1/2 rounded-xl object-cover" style={photoStyle} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={partnerPhoto} alt="Partner" className="w-1/2 rounded-xl object-cover" style={photoStyle} />
+        </div>
+      );
+  }
+}
+
+function FrameDecoration({ frame, hasPartner }: { frame: FrameType; hasPartner?: boolean }) {
+  if (hasPartner) {
+    switch (frame) {
+      case "pink-heart":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-2 border-2 border-pink-300/30 rounded-xl" />
+            <div className="absolute top-2 left-2 text-lg">✨</div>
+            <div className="absolute bottom-2 right-2 text-lg">🎀</div>
+          </div>
+        );
+      case "scrapbook":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute top-2 right-2 text-sm">🌸</div>
+            <div className="absolute bottom-2 left-2 text-sm">🌼</div>
+          </div>
+        );
+      case "miles-apart":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-2 border-2 border-dashed border-blue-300/30 rounded-xl" />
+          </div>
+        );
+      case "cloud-stars":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">🌙</div>
+          </div>
+        );
+      case "bear-bunny":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">💕</div>
+          </div>
+        );
+      case "love-letter":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-2 border-2 border-red-200/30 rounded-xl" />
+          </div>
+        );
+      case "polaroid":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-2 border border-white/40 rounded" />
+          </div>
+        );
+      case "photobooth-strip":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-y-0 left-0 w-2 bg-pink-200/40" />
+            <div className="absolute inset-y-0 right-0 w-2 bg-pink-200/40" />
+          </div>
+        );
+      case "same-moment":
+        return (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-2 border-2 border-lavender-300/30 rounded-xl" />
+          </div>
+        );
+      default:
+        return null;
+    }
+  }
+
   switch (frame) {
     case "pink-heart":
       return (

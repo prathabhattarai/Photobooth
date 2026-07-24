@@ -121,13 +121,26 @@ export default function BoothPage() {
   const roomCode = currentRoomCode || "local";
   const userName = user?.name || "Guest";
 
-  const { remoteStream, connected, peerCount } = useWebRTC({
+  const TOTAL_PHOTOS = 4;
+  const capturingRef = useRef(false);
+  const capturedPhotosRef = useRef<string[]>([]);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [localPhotoReady, setLocalPhotoReady] = useState(false);
+  const [partnerPhotoReady, setPartnerPhotoReady] = useState(false);
+  const [waitingForPartner, setWaitingForPartner] = useState(false);
+  const waitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handlePhotoReceived = useCallback((photoData: string) => {
+    sessionStorage.setItem("partnerPhoto", photoData);
+    setPartnerPhotoReady(true);
+  }, []);
+
+  const { remoteStream, connected, peerCount, sendPhoto } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
+    onPhotoReceived: handlePhotoReceived,
   });
-
-  const TOTAL_PHOTOS = 4;
 
   const startCamera = useCallback(async () => {
     try {
@@ -167,6 +180,8 @@ export default function BoothPage() {
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
       if (captureTimerRef.current) clearTimeout(captureTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
     };
   }, []);
 
@@ -202,18 +217,22 @@ export default function BoothPage() {
   };
 
   const runCaptureSequence = useCallback(async (layoutType: "1x4" | "2x2") => {
-    const photos: string[] = [];
+    if (capturingRef.current) return [];
+    capturingRef.current = true;
+    capturedPhotosRef.current = [];
+
     for (let i = 0; i < TOTAL_PHOTOS; i++) {
       setCaptureIndex(i);
       await new Promise<void>((resolve) => {
         let count = 3;
         setCountdown(count);
-        const interval = setInterval(() => {
+        countdownIntervalRef.current = setInterval(() => {
           count--;
           if (count > 0) {
             setCountdown(count);
           } else {
-            clearInterval(interval);
+            if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
             setCountdown(null);
             resolve();
           }
@@ -222,16 +241,29 @@ export default function BoothPage() {
       flash();
       const photo = capturePhoto();
       if (photo) {
-        photos.push(photo);
-        setCapturedPhotos([...photos]);
+        capturedPhotosRef.current = [...capturedPhotosRef.current, photo];
+        setCapturedPhotos([...capturedPhotosRef.current]);
       }
     }
     setCaptureIndex(null);
-    return photos;
+    capturingRef.current = false;
+    return [...capturedPhotosRef.current];
   }, []);
 
+  const navigateToEditor = useCallback(() => {
+    setLocalPhotoReady(false);
+    setPartnerPhotoReady(false);
+    setWaitingForPartner(false);
+    if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
+    router.push("/editor");
+  }, [router]);
+
   const startCountdown = async () => {
+    sessionStorage.removeItem("partnerPhoto");
     setCapturedPhotos([]);
+    setLocalPhotoReady(false);
+    setPartnerPhotoReady(false);
+    setWaitingForPartner(false);
     const photos = await runCaptureSequence(frameLayout);
     if (photos.length === 0) return;
     setIsComposing(true);
@@ -244,11 +276,21 @@ export default function BoothPage() {
       }
       sessionStorage.setItem("capturedPhoto", finalImage);
       sessionStorage.setItem("selectedFrame", selectedFrame);
-      router.push("/editor");
+      setLocalPhotoReady(true);
+
+      if (connected) {
+        sendPhoto(finalImage);
+        setWaitingForPartner(true);
+        waitTimeoutRef.current = setTimeout(() => {
+          navigateToEditor();
+        }, 20000);
+      } else {
+        navigateToEditor();
+      }
     } catch {
       sessionStorage.setItem("capturedPhoto", photos[0]);
       sessionStorage.setItem("selectedFrame", selectedFrame);
-      router.push("/editor");
+      navigateToEditor();
     } finally {
       setIsComposing(false);
     }
@@ -273,6 +315,12 @@ export default function BoothPage() {
   };
 
   const isCapturing = captureIndex !== null;
+
+  useEffect(() => {
+    if (localPhotoReady && partnerPhotoReady) {
+      navigateToEditor();
+    }
+  }, [localPhotoReady, partnerPhotoReady, navigateToEditor]);
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -584,6 +632,31 @@ export default function BoothPage() {
             Composing your layout...
           </motion.p>
         )}
+
+        {/* Waiting for partner's photo */}
+        <AnimatePresence>
+          {waitingForPartner && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center gap-3 mb-4"
+            >
+              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-champagne/50 border border-gold/20">
+                <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />
+                <span className="text-sm text-warm-gray-500 font-medium">
+                  Photo sent! Waiting for partner...
+                </span>
+              </div>
+              <button
+                onClick={navigateToEditor}
+                className="text-xs text-warm-gray-400 underline hover:text-warm-gray-600 transition-colors"
+              >
+                Continue without partner&apos;s photo
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Flash overlay */}
         <AnimatePresence>
