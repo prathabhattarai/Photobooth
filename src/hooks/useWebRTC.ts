@@ -23,27 +23,45 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const gotAnswerRef = useRef(false);
+  const peerIdRef = useRef(crypto.randomUUID().slice(0, 8));
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
+  const pendingCandidateRef = useRef<RTCIceCandidateInit[]>([]);
+  const pendingMembersRef = useRef<string[]>([]);
+  const negotiatingRef = useRef(false);
 
   localStreamRef.current = localStream;
+
+  const sendWs = useCallback((data: Record<string, unknown>) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
+    }
+  }, []);
+
+  const createAndSendOffer = useCallback(async (pc: RTCPeerConnection) => {
+    if (negotiatingRef.current || pc.signalingState !== "stable") return;
+    negotiatingRef.current = true;
+    try {
+      const offer = await pc.createOffer();
+      if (pc.signalingState !== "stable") return;
+      await pc.setLocalDescription(offer);
+      sendWs({ type: "offer", offer: pc.localDescription, peerId: peerIdRef.current });
+    } finally {
+      negotiatingRef.current = false;
+    }
+  }, [sendWs]);
 
   const createPeerConnection = useCallback(() => {
     if (pcRef.current) return pcRef.current;
     const pc = new RTCPeerConnection(STUN_SERVERS);
-    console.log("[WebRTC] PeerConnection created");
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-        console.log("[WebRTC] Sending ICE candidate");
-        wsRef.current.send(JSON.stringify({
-          type: "ice-candidate",
-          candidate: e.candidate,
-        }));
+      if (e.candidate) {
+        sendWs({ type: "ice-candidate", candidate: e.candidate, peerId: peerIdRef.current });
       }
     };
 
     pc.ontrack = (e) => {
-      console.log("[WebRTC] ontrack! tracks:", e.streams[0]?.getTracks().length);
       if (e.streams[0]) {
         setRemoteStream(e.streams[0]);
         setConnected(true);
@@ -51,64 +69,73 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
     };
 
     pc.onconnectionstatechange = () => {
-      console.log("[WebRTC] state:", pc.connectionState, "ice:", pc.iceConnectionState, "signaling:", pc.signalingState);
       if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
         setConnected(false);
         setRemoteStream(null);
       }
     };
 
+    pc.onnegotiationneeded = () => {
+      if (!negotiatingRef.current && pc.signalingState === "stable") {
+        createAndSendOffer(pc);
+      }
+    };
+
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current!);
-        console.log("[WebRTC] Added local track:", track.kind);
       });
     }
 
     pcRef.current = pc;
     return pc;
-  }, []);
+  }, [sendWs, createAndSendOffer]);
+
+  const handleRemoteOffer = useCallback(async (offer: RTCSessionDescriptionInit) => {
+    let pc = pcRef.current;
+    if (!pc) {
+      pc = createPeerConnection();
+    }
+
+    if (pc.signalingState !== "stable") {
+      try { await pc.setLocalDescription({ type: "rollback" } as RTCSessionDescriptionInit); } catch {}
+    }
+
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendWs({ type: "answer", answer: pc.localDescription, peerId: peerIdRef.current });
+
+    pendingCandidateRef.current.forEach((c) => {
+      pc!.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+    });
+    pendingCandidateRef.current = [];
+  }, [createPeerConnection, sendWs]);
 
   useEffect(() => {
     if (!roomCode || !userName || roomCode === "local") return;
-    console.log("[WebRTC] Connecting ws room:", roomCode, "user:", userName);
 
     const wsUrl = `wss://togetherframe-backend.onrender.com/ws/${roomCode}/${userName}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log("[WebRTC] WS connected");
-    };
-
-    ws.onerror = (e) => console.error("[WebRTC] WS error:", e);
-
-    ws.onclose = (e) => console.log("[WebRTC] WS closed:", e.code);
-
     ws.onmessage = async (event) => {
       const msg = JSON.parse(event.data);
-      console.log("[WebRTC] <<", msg.type, msg);
 
       if (msg.type === "existing_members") {
         setPeerCount(msg.member_count);
         if (msg.members.length > 0) {
-          console.log("[WebRTC] Existing peers:", msg.members, "- creating offer");
-          const pc = createPeerConnection();
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "offer", offer: pc.localDescription }));
-              console.log("[WebRTC] >> Sent offer");
-            }
-          } catch (err) {
-            console.error("[WebRTC] Offer failed:", err);
+          if (localStreamRef.current && !pcRef.current) {
+            const pc = createPeerConnection();
+            createAndSendOffer(pc);
+          } else {
+            pendingMembersRef.current = msg.members;
           }
         }
       }
 
       if (msg.type === "user_joined" && msg.user_name !== userName) {
-        console.log("[WebRTC] Peer joined:", msg.user_name, "(waiting for their offer via existing_members)");
         setPeerCount(msg.members);
       }
 
@@ -117,51 +144,42 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
       }
 
       if (msg.type === "user_left") {
-        console.log("[WebRTC] Peer left:", msg.user_name);
         setPeerCount(msg.members);
         setConnected(false);
         setRemoteStream(null);
-        gotAnswerRef.current = false;
         if (pcRef.current) {
           pcRef.current.close();
           pcRef.current = null;
         }
+        pendingOfferRef.current = null;
+        pendingCandidateRef.current = [];
+        pendingMembersRef.current = [];
+        negotiatingRef.current = false;
       }
 
-      if (msg.type === "offer" && msg.sender !== userName) {
-        console.log("[WebRTC] << Got offer from", msg.sender);
-        try {
-          const pc = createPeerConnection();
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "answer", answer: pc.localDescription }));
-            console.log("[WebRTC] >> Sent answer");
-          }
-        } catch (err) {
-          console.error("[WebRTC] Handle offer failed:", err);
+      if (msg.type === "offer" && msg.peerId !== peerIdRef.current) {
+        if (localStreamRef.current) {
+          await handleRemoteOffer(msg.offer);
+        } else {
+          pendingOfferRef.current = msg.offer;
         }
       }
 
-      if (msg.type === "answer" && msg.sender !== userName) {
-        console.log("[WebRTC] << Got answer from", msg.sender);
+      if (msg.type === "answer" && msg.peerId !== peerIdRef.current) {
         try {
           const pc = pcRef.current;
-          if (pc && !gotAnswerRef.current) {
-            gotAnswerRef.current = true;
+          if (pc && pc.signalingState === "have-local-offer") {
             await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
-            console.log("[WebRTC] Remote description set (answer)");
           }
-        } catch (err) {
-          console.error("[WebRTC] Handle answer failed:", err);
-        }
+        } catch {}
       }
 
-      if (msg.type === "ice-candidate" && msg.sender !== userName) {
+      if (msg.type === "ice-candidate" && msg.peerId !== peerIdRef.current) {
         try {
-          if (pcRef.current) {
+          if (pcRef.current && pcRef.current.remoteDescription) {
             await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          } else {
+            pendingCandidateRef.current.push(msg.candidate);
           }
         } catch {}
       }
@@ -173,23 +191,36 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
         pcRef.current.close();
         pcRef.current = null;
       }
-      gotAnswerRef.current = false;
+      negotiatingRef.current = false;
+      pendingOfferRef.current = null;
+      pendingCandidateRef.current = [];
+      pendingMembersRef.current = [];
     };
-  }, [roomCode, userName, createPeerConnection]);
+  }, [roomCode, userName, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
   useEffect(() => {
-    if (!localStream || !pcRef.current) return;
+    if (!localStream) return;
     const pc = pcRef.current;
-    localStream.getTracks().forEach((track) => {
-      const senders = pc.getSenders();
-      const existing = senders.find((s) => s.track?.kind === track.kind);
-      if (existing) {
-        existing.replaceTrack(track);
-      } else {
-        pc.addTrack(track, localStream);
-      }
-    });
-  }, [localStream]);
+    if (pc) {
+      localStream.getTracks().forEach((track) => {
+        const senders = pc.getSenders();
+        const existing = senders.find((s) => s.track?.kind === track.kind);
+        if (existing) {
+          existing.replaceTrack(track);
+        } else {
+          pc.addTrack(track, localStream);
+        }
+      });
+    } else if (pendingMembersRef.current.length > 0) {
+      const newPc = createPeerConnection();
+      createAndSendOffer(newPc);
+      pendingMembersRef.current = [];
+    } else if (pendingOfferRef.current) {
+      const offer = pendingOfferRef.current;
+      pendingOfferRef.current = null;
+      handleRemoteOffer(offer);
+    }
+  }, [localStream, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
   return { remoteStream, connected, peerCount };
 }
