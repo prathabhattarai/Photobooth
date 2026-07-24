@@ -32,11 +32,35 @@ export default function AvatarUploader({
     lg: "w-7 h-7",
   };
 
-  const handleFile = (file: File) => {
+  const compressImage = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 200;
+        let w = img.width;
+        let h = img.height;
+        if (w > h) { if (w > MAX) { h = (h * MAX) / w; w = MAX; } }
+        else { if (h > MAX) { w = (w * MAX) / h; h = MAX; } }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
+  const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      onChange(ev.target?.result as string);
+    reader.onload = async (ev) => {
+      const raw = ev.target?.result as string;
+      const compressed = await compressImage(raw);
+      onChange(compressed);
     };
     reader.readAsDataURL(file);
   };
