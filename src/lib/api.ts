@@ -1,6 +1,6 @@
 const API_BASE = "/api";
 
-async function request(path: string, options: RequestInit = {}, retries = 2): Promise<Record<string, unknown>> {
+async function request(path: string, options: RequestInit = {}, retries = 2) {
   const token = typeof window !== "undefined" ? localStorage.getItem("tf_token") : null;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
