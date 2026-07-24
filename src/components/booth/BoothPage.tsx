@@ -155,7 +155,6 @@ export default function BoothPage() {
   }, []);
 
   useEffect(() => {
-    startCamera();
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
       if (captureTimerRef.current) clearTimeout(captureTimerRef.current);
@@ -348,9 +347,26 @@ export default function BoothPage() {
                 </div>
               )}
               {cameraError && !isCamOff && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400">
-                  <Camera className="w-12 h-12 mb-3 opacity-50" />
-                  <p className="text-sm text-center px-4">{cameraError}</p>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-pink-50/50">
+                  <Camera className="w-10 h-10 mb-2 opacity-50" />
+                  <button
+                    onClick={startCamera}
+                    className="px-4 py-2 rounded-full bg-pink-400 text-white text-sm font-bold shadow-lg hover:bg-pink-500 active:scale-95 transition-all"
+                  >
+                    Turn on Camera
+                  </button>
+                  <p className="text-xs text-pink-300 mt-2 text-center px-6">{cameraError}</p>
+                </div>
+              )}
+              {!isActive && !cameraError && !isCamOff && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <button
+                    onClick={startCamera}
+                    className="px-6 py-3 rounded-full bg-gradient-to-br from-pink-400 to-rose-400 text-white font-bold shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all"
+                  >
+                    <Camera className="w-5 h-5 inline mr-2" />
+                    Turn on Camera
+                  </button>
                 </div>
               )}
               <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/80 backdrop-blur text-xs font-bold text-pink-500">
