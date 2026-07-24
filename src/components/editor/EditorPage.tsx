@@ -216,7 +216,7 @@ export default function EditorPage() {
                   }`}
                 />
 
-                <div className="relative max-h-[60vh] overflow-hidden rounded-2xl">
+                <div className="relative rounded-2xl">
                   <CoupleFramePreview
                     localPhotos={localPhotos}
                     partnerPhotos={partnerPhotos}
@@ -679,13 +679,132 @@ function CoupleFramePreview({
         />
       );
     }
-    return (
-      <div className={`grid gap-2 p-4 bg-gradient-to-br ${SoloBG[frame]} justify-center items-center min-h-[300px]`}>
-        {localPhotos.map((src, i) => (
-          <img key={i} src={src} alt={`Photo ${i + 1}`} className="w-full rounded-xl object-cover" style={photoStyle} />
+
+    if (frame === "photobooth-strip") {
+      return (
+        <div className={`flex gap-3 p-4 bg-gradient-to-br ${SoloBG[frame]} min-h-[400px]`}>
+          <div className="flex-1 flex flex-col gap-2">
+            {localPhotos.slice(0, 2).map((src, i) => (
+              <div key={i} className="flex-1 bg-white rounded-xl p-1.5 shadow-md border-2 border-pink-200/50">
+                <img src={src} alt={`Photo ${i + 1}`} className="w-full h-full object-cover rounded-lg" style={photoStyle} />
+              </div>
+            ))}
+          </div>
+          <div className="flex-1 flex flex-col gap-2">
+            {localPhotos.slice(2, 4).map((src, i) => (
+              <div key={i + 2} className="flex-1 bg-white rounded-xl p-1.5 shadow-md border-2 border-pink-200/50">
+                <img src={src} alt={`Photo ${i + 3}`} className="w-full h-full object-cover rounded-lg" style={photoStyle} />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const soloGrid = (photos: string[], borderClass: string) => (
+      <div className={`grid grid-cols-2 gap-3 p-6 bg-gradient-to-br ${SoloBG[frame]} justify-items-center items-center min-h-[300px]`}>
+        {photos.slice(0, 4).map((src, i) => (
+          <div key={i} className={`rounded-2xl overflow-hidden shadow-lg ${borderClass}`}>
+            <img src={src} alt={`Photo ${i + 1}`} className="w-full h-36 object-cover" style={photoStyle} />
+          </div>
         ))}
       </div>
     );
+
+    switch (frame) {
+      case "polaroid":
+        return (
+          <div className={`flex flex-wrap gap-4 p-6 bg-gradient-to-br ${SoloBG[frame]} justify-center items-center min-h-[300px]`}>
+            {localPhotos.slice(0, 4).map((src, i) => (
+              <div key={i} className="bg-white p-2 pb-8 shadow-lg rounded-sm" style={{ transform: `rotate(${i % 2 === 0 ? -2 : 2}deg)` }}>
+                <img src={src} alt={`Photo ${i + 1}`} className="w-40 h-30 object-cover" style={photoStyle} />
+                <p className="text-center text-[10px] text-gray-400 mt-1 font-serif">{i + 1}</p>
+              </div>
+            ))}
+          </div>
+        );
+      case "scrapbook":
+        return (
+          <div className={`flex flex-wrap gap-4 p-6 bg-gradient-to-br ${SoloBG[frame]} justify-center items-center min-h-[300px]`}>
+            {localPhotos.slice(0, 4).map((src, i) => (
+              <div key={i} className="relative shadow-md" style={{ transform: `rotate(${(i - 1.5) * 3}deg)` }}>
+                <div className="absolute -top-2 left-4 w-12 h-5 bg-amber-200/70 rotate-[-2deg] rounded" />
+                <img src={src} alt={`Photo ${i + 1}`} className="w-40 h-30 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
+              </div>
+            ))}
+          </div>
+        );
+      case "pink-heart":
+        return soloGrid(localPhotos, "border-2 border-pink-300/40");
+      case "miles-apart":
+        return (
+          <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${SoloBG[frame]} min-h-[300px]`}>
+            <div className="bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-blue-400 mb-2">
+              Miles Apart, Together at Heart 💕
+            </div>
+            <div className="grid grid-cols-2 gap-3 flex-1 w-full">
+              {localPhotos.slice(0, 4).map((src, i) => (
+                <div key={i} className="rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
+                  <img src={src} alt={`Photo ${i + 1}`} className="w-full h-32 object-cover" style={photoStyle} />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case "cloud-stars":
+        return soloGrid(localPhotos, "");
+      case "bear-bunny":
+        return (
+          <div className={`flex gap-4 p-6 bg-gradient-to-br ${SoloBG[frame]} justify-center items-center min-h-[300px]`}>
+            <div className="text-2xl">🐻</div>
+            <div className="flex-1 grid grid-cols-2 gap-3">
+              {localPhotos.slice(0, 4).map((src, i) => (
+                <div key={i} className="rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
+                  <img src={src} alt={`Photo ${i + 1}`} className="w-full h-36 object-cover" style={photoStyle} />
+                </div>
+              ))}
+            </div>
+            <div className="text-2xl">🐰</div>
+          </div>
+        );
+      case "love-letter":
+        return (
+          <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${SoloBG[frame]} min-h-[300px]`}>
+            <div className="flex gap-1 text-xl">
+              <span>💌</span><span>💝</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 flex-1 w-full">
+              {localPhotos.slice(0, 4).map((src, i) => (
+                <div key={i} className="rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
+                  <img src={src} alt={`Photo ${i + 1}`} className="w-full h-32 object-cover" style={photoStyle} />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs handwriting text-red-300">With all my love</p>
+          </div>
+        );
+      case "same-moment":
+        return (
+          <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${SoloBG[frame]} min-h-[300px]`}>
+            <div className="bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-lavender-400 mb-1">
+              Same Moment 🕐
+            </div>
+            <div className="grid grid-cols-2 gap-3 flex-1 w-full">
+              {localPhotos.slice(0, 4).map((src, i) => (
+                <div key={i} className="relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
+                  <img src={src} alt={`Photo ${i + 1}`} className="w-full h-32 object-cover" style={photoStyle} />
+                  <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">Photo {i + 1}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+            </p>
+          </div>
+        );
+      default:
+        return soloGrid(localPhotos, FrameBorder[frame] || "");
+    }
   }
 
   if (frame === "photobooth-strip") {
