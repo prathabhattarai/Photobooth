@@ -12,7 +12,6 @@ import {
   Copy,
   Check,
   LogIn,
-  UserPlus,
   Mail,
   Lock,
   User,
@@ -24,12 +23,12 @@ import FloatingElements from "@/components/ui/FloatingElements";
 import AvatarUploader from "@/components/ui/AvatarUploader";
 import * as api from "@/lib/api";
 
-type Step = "choose" | "create" | "join" | "created" | "signin" | "signup";
+type Step = "choose" | "create" | "join" | "created" | "signin";
 
 export default function RoomPage() {
   const router = useRouter();
   const { user, setUser, setCurrentRoomCode, setPartnerAvatar, logout } = useApp();
-  const [step, setStep] = useState<Step>(user ? "choose" : "signup");
+  const [step, setStep] = useState<Step>(user ? "choose" : "signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -114,23 +113,6 @@ export default function RoomPage() {
     }
   };
 
-  const handleSignUp = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      await api.register(name, email, password, selectedAvatar || "");
-      const u = api.getUser();
-      setUser(u);
-      savePartnerAvatar();
-      setStep("choose");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not create account");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCopy = () => {
     navigator.clipboard.writeText(generatedCode);
     setCopied(true);
@@ -196,15 +178,9 @@ export default function RoomPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { setStep("signin"); setError(""); setEmail(""); setPassword(""); }}
-                className="px-4 py-2 rounded-full text-sm font-medium text-warm-gray-500 hover:text-rose-500 hover:bg-rose-50 transition-all"
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => { setStep("signup"); setError(""); setName(""); setEmail(""); setPassword(""); setSelectedAvatar(null); }}
                 className="px-4 py-2 rounded-full bg-gradient-to-r from-rose-500 to-rose-600 text-white text-sm font-medium shadow-md hover:shadow-lg transition-all"
               >
-                Sign Up
+                Sign In
               </button>
             </div>
           )}
@@ -346,124 +322,6 @@ export default function RoomPage() {
                 </button>
 
                 <div className="text-center mt-5 pt-4 border-t border-warm-gray-100">
-                  <p className="text-sm text-warm-gray-400">
-                    Don&apos;t have an account?{" "}
-                    <button
-                      onClick={() => { setStep("signup"); setError(""); setName(""); setEmail(""); setPassword(""); setSelectedAvatar(null); }}
-                      className="text-rose-500 font-medium hover:text-rose-600 transition-colors"
-                    >
-                      Sign up
-                    </button>
-                  </p>
-                </div>
-
-                <div className="text-center mt-3">
-                  <button
-                    onClick={() => { setStep("choose"); setError(""); }}
-                    className="text-sm text-warm-gray-400 hover:text-warm-gray-600 transition-colors"
-                  >
-                    ← Back
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ==================== SIGN UP ==================== */}
-          {step === "signup" && (
-            <motion.div key="signup" {...pageVariants}>
-              <div className="text-center mb-8">
-                <h1 className="text-3xl font-serif font-bold text-warm-gray-800 mb-2">
-                  Create Account
-                </h1>
-                <p className="text-warm-gray-400 text-sm">
-                  Save your memories across sessions
-                </p>
-                <div className="w-12 h-px bg-gold/40 mx-auto mt-4" />
-              </div>
-
-              <div className="glass-card rounded-2xl p-8">
-                <div className="mb-5">
-                  <label className="block text-xs font-medium text-warm-gray-500 mb-2 tracking-wide uppercase">
-                    <User className="w-3.5 h-3.5 inline mr-1.5" /> Your Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="What should we call you?"
-                    className="cute-input"
-                    maxLength={20}
-                    autoFocus
-                  />
-                </div>
-
-                <div className="mb-5">
-                  <label className="block text-xs font-medium text-warm-gray-500 mb-2 tracking-wide uppercase">
-                    <Mail className="w-3.5 h-3.5 inline mr-1.5" /> Email
-                  </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    className="cute-input"
-                  />
-                </div>
-
-                <div className="mb-5">
-                  <label className="block text-xs font-medium text-warm-gray-500 mb-2 tracking-wide uppercase">
-                    <Lock className="w-3.5 h-3.5 inline mr-1.5" /> Password
-                  </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Your password"
-                    className="cute-input"
-                  />
-                </div>
-
-                <div className="mb-8 flex justify-center">
-                  <AvatarUploader
-                    value={selectedAvatar}
-                    onChange={(img) => setSelectedAvatar(img)}
-                    size="lg"
-                    label="Your Photo"
-                  />
-                </div>
-
-                <button
-                  onClick={handleSignUp}
-                  disabled={loading || !name.trim() || !email.trim() || !password.trim()}
-                  className="cute-button w-full bg-gradient-to-r from-rose-500 to-rose-600 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Creating account...
-                    </span>
-                  ) : (
-                    <span className="flex items-center justify-center gap-2">
-                      <UserPlus className="w-4 h-4" />
-                      Create Account
-                    </span>
-                  )}
-                </button>
-
-                <div className="text-center mt-5 pt-4 border-t border-warm-gray-100">
-                  <p className="text-sm text-warm-gray-400">
-                    Already have an account?{" "}
-                    <button
-                      onClick={() => { setStep("signin"); setError(""); setEmail(""); setPassword(""); }}
-                      className="text-rose-500 font-medium hover:text-rose-600 transition-colors"
-                    >
-                      Sign in
-                    </button>
-                  </p>
-                </div>
-
-                <div className="text-center mt-3">
                   <button
                     onClick={() => { setStep("choose"); setError(""); }}
                     className="text-sm text-warm-gray-400 hover:text-warm-gray-600 transition-colors"
