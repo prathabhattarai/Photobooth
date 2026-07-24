@@ -4,22 +4,14 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     APP_NAME: str = "TogetherFrame"
-    SECRET_KEY: str = "togetherframe-secret-key-change-in-production"
+    SECRET_KEY: str = os.environ.get("SECRET_KEY", "togetherframe-prod-secret-2026")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
-    DATABASE_URL: str = ""
+    DATABASE_URL: str = "mysql+pymysql://4JsJwEq131Vh4MT.root:ylr6Fmrtx07KtsUA@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/togetherframe"
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "https://*.vercel.app"]
 
     class Config:
         env_file = ".env"
 
 
-_settings = Settings()
-
-if not _settings.DATABASE_URL:
-    _settings.DATABASE_URL = os.environ.get(
-        "DATABASE_URL",
-        "mysql+pymysql://root:12345@localhost:3306/togetherframe",
-    )
-
-settings = _settings
+settings = Settings()
