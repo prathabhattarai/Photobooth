@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppProvider } from "@/lib/store";
+import KeepAlive from "@/components/ui/KeepAlive";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full flex flex-col antialiased">
-        <AppProvider>{children}</AppProvider>
+        <AppProvider>
+          <KeepAlive>{children}</KeepAlive>
+        </AppProvider>
       </body>
     </html>
   );
