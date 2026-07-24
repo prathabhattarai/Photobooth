@@ -100,25 +100,30 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: 
   }, [sendWs, createAndSendOffer]);
 
   const handleRemoteOffer = useCallback(async (offer: RTCSessionDescriptionInit) => {
-    let pc = pcRef.current;
-    if (!pc) {
-      pc = createPeerConnection();
+    negotiatingRef.current = true;
+    try {
+      let pc = pcRef.current;
+      if (!pc) {
+        pc = createPeerConnection();
+      }
+
+      if (pc.signalingState !== "stable") {
+        try { await pc.setLocalDescription({ type: "rollback" } as RTCSessionDescriptionInit); } catch {}
+      }
+
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendWs({ type: "answer", answer: pc.localDescription, peerId: peerIdRef.current });
+
+      pendingCandidateRef.current.forEach((c) => {
+        pc!.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+      });
+      pendingCandidateRef.current = [];
+    } finally {
+      negotiatingRef.current = false;
     }
-
-    if (pc.signalingState !== "stable") {
-      try { await pc.setLocalDescription({ type: "rollback" } as RTCSessionDescriptionInit); } catch {}
-    }
-
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    sendWs({ type: "answer", answer: pc.localDescription, peerId: peerIdRef.current });
-
-    pendingCandidateRef.current.forEach((c) => {
-      pc!.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-    });
-    pendingCandidateRef.current = [];
   }, [createPeerConnection, sendWs]);
 
   useEffect(() => {
@@ -133,12 +138,12 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: 
 
       if (msg.type === "existing_members") {
         setPeerCount(msg.member_count);
-        if (msg.members.length > 0) {
+        if (msg.has_existing) {
           if (localStreamRef.current && !pcRef.current) {
             const pc = createPeerConnection();
             createAndSendOffer(pc);
           } else {
-            pendingMembersRef.current = msg.members;
+            pendingMembersRef.current = ["peer"];
           }
         }
       }
