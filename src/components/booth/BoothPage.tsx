@@ -149,8 +149,17 @@ export default function BoothPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
-    } catch {
-      setCameraError("Could not access camera. Please allow camera permissions in your browser settings.");
+    } catch (err: unknown) {
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setCameraError("Camera permission was denied. Tap the lock/info icon in your address bar, find Camera, and set it to Allow. Then reload the page.");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setCameraError("No camera found. Make sure your device has a camera connected.");
+      } else if (name === "NotReadableError" || name === "TrackStartError") {
+        setCameraError("Camera is being used by another app. Close other camera apps and try again.");
+      } else {
+        setCameraError("Could not access camera. Check your browser camera settings and reload.");
+      }
     }
   }, []);
 
@@ -353,9 +362,15 @@ export default function BoothPage() {
                     onClick={startCamera}
                     className="px-4 py-2 rounded-full bg-pink-400 text-white text-sm font-bold shadow-lg hover:bg-pink-500 active:scale-95 transition-all"
                   >
-                    Turn on Camera
+                    Try Again
                   </button>
-                  <p className="text-xs text-pink-300 mt-2 text-center px-6">{cameraError}</p>
+                  <p className="text-xs text-pink-400 mt-3 text-center px-6 leading-relaxed max-w-[250px]">{cameraError}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-2 text-[11px] text-pink-300 underline hover:text-pink-400"
+                  >
+                    Reload page
+                  </button>
                 </div>
               )}
               {!isActive && !cameraError && !isCamOff && (
