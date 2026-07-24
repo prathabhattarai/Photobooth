@@ -23,7 +23,6 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const gotAnswerRef = useRef(false);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const hasInitiatedRef = useRef(false);
 
   localStreamRef.current = localStream;
 
@@ -107,7 +106,6 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
     }
   }, [userName]);
 
-  // Connect WebSocket immediately, regardless of localStream
   useEffect(() => {
     if (!roomCode || !userName) return;
 
@@ -121,12 +119,15 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
       ws.send(JSON.stringify({ type: "join" }));
     };
 
+    ws.onerror = (e) => {
+      console.error("WebSocket error:", e);
+    };
+
     ws.onmessage = async (event) => {
       const msg = JSON.parse(event.data);
 
-      if (msg.type === "user_joined" && msg.sender !== userName) {
+      if (msg.type === "user_joined" && msg.user_name !== userName) {
         setPeerCount(msg.members);
-        hasInitiatedRef.current = true;
         gotAnswerRef.current = false;
 
         const pc = createPeerConnection();
@@ -149,6 +150,10 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
         }
       }
 
+      if (msg.type === "user_joined" && msg.user_name === userName) {
+        setPeerCount(msg.members);
+      }
+
       if (msg.type === "user_left") {
         setPeerCount(msg.members);
         setConnected(false);
@@ -157,17 +162,16 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
           pcRef.current.close();
           pcRef.current = null;
           gotAnswerRef.current = false;
-          hasInitiatedRef.current = false;
         }
       }
 
-      if (msg.type === "offer") {
+      if (msg.type === "offer" && msg.sender !== userName) {
         await handleOffer(msg.offer, msg.sender);
       }
-      if (msg.type === "answer") {
+      if (msg.type === "answer" && msg.sender !== userName) {
         await handleAnswer(msg.answer, msg.sender);
       }
-      if (msg.type === "ice-candidate") {
+      if (msg.type === "ice-candidate" && msg.sender !== userName) {
         await handleIceCandidate(msg.candidate, msg.sender);
       }
     };
@@ -186,12 +190,11 @@ export function useWebRTC({ roomCode, userName, localStream }: UseWebRTCProps) {
     };
   }, [roomCode, userName, createPeerConnection, addTracksToPC, handleOffer, handleAnswer, handleIceCandidate]);
 
-  // When localStream changes, add tracks to existing peer connection and renegotiate
   useEffect(() => {
     if (!localStream || !pcRef.current) return;
     addTracksToPC(pcRef.current, localStream);
 
-    if (pcRef.current.signalingState === "stable" && hasInitiatedRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+    if (pcRef.current.signalingState === "stable" && wsRef.current?.readyState === WebSocket.OPEN) {
       pcRef.current.createOffer().then((offer) => pcRef.current!.setLocalDescription(offer)).then(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN && pcRef.current) {
           wsRef.current.send(JSON.stringify({

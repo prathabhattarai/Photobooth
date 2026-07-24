@@ -64,16 +64,23 @@ manager = ConnectionManager()
 @app.websocket("/ws/{room_code}/{user_name}")
 async def websocket_endpoint(websocket: WebSocket, room_code: str, user_name: str):
     await manager.connect(websocket, room_code)
+    members = len(manager.active_connections.get(room_code, []))
     await manager.broadcast(
         room_code,
-        {"type": "user_joined", "user_name": user_name, "members": len(manager.active_connections.get(room_code, []))},
+        {"type": "user_joined", "user_name": user_name, "members": members},
     )
     try:
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
             message["sender"] = user_name
-            await manager.broadcast(room_code, message)
+            if message.get("type") != "join":
+                for connection in manager.active_connections.get(room_code, []):
+                    if connection != websocket:
+                        try:
+                            await connection.send_json(message)
+                        except Exception:
+                            pass
     except WebSocketDisconnect:
         manager.disconnect(websocket, room_code)
         await manager.broadcast(
