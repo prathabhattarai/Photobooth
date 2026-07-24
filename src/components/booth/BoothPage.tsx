@@ -18,6 +18,7 @@ import { FrameType } from "@/lib/types";
 import { useApp } from "@/lib/store";
 import FloatingElements from "@/components/ui/FloatingElements";
 import FrameLayoutSelector from "@/components/ui/FrameLayoutSelector";
+import { useWebRTC } from "@/hooks/useWebRTC";
 
 function composeLayout(photos: string[], layout: "1x4" | "2x2"): Promise<string> {
   const W = 400;
@@ -101,8 +102,9 @@ function composeLayout(photos: string[], layout: "1x4" | "2x2"): Promise<string>
 
 export default function BoothPage() {
   const router = useRouter();
-  const { user, partnerAvatar, frameLayout, setFrameLayout } = useApp();
+  const { user, partnerAvatar, frameLayout, setFrameLayout, currentRoomCode } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -110,12 +112,20 @@ export default function BoothPage() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
-  const [partnerConnected] = useState(true);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [captureIndex, setCaptureIndex] = useState<number | null>(null);
   const [flashVisible, setFlashVisible] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const captureTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const roomCode = currentRoomCode || "local";
+  const userName = user?.name || "Guest";
+
+  const { remoteStream, connected, peerCount } = useWebRTC({
+    roomCode,
+    userName,
+    localStream: stream,
+  });
 
   const TOTAL_PHOTOS = 4;
 
@@ -149,6 +159,12 @@ export default function BoothPage() {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  useEffect(() => {
+    if (remoteStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
   const capturePhoto = (): string | null => {
     const video = videoRef.current;
@@ -273,17 +289,17 @@ export default function BoothPage() {
           <div className="flex items-center gap-2">
             <div
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
-                partnerConnected
+                connected
                   ? "bg-green-50 text-green-600 border border-green-200/50"
                   : "bg-champagne/50 text-warm-gray-500 border border-gold/20"
               }`}
             >
               <div
                 className={`w-1.5 h-1.5 rounded-full ${
-                  partnerConnected ? "bg-green-500 animate-pulse" : "bg-gold"
+                  connected ? "bg-green-500 animate-pulse" : "bg-gold"
                 }`}
               />
-              {partnerConnected ? "Together" : "Waiting..."}
+              {connected ? "Together" : peerCount > 0 ? "Connecting..." : "Waiting..."}
             </div>
             {partnerAvatar && (
               <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-lavender-200">
@@ -348,7 +364,14 @@ export default function BoothPage() {
           {/* Partner 2 */}
           <div className="relative rounded-3xl overflow-hidden pastel-shadow">
             <div className="aspect-[4/3] bg-gradient-to-br from-lavender-100 to-lavender-200 relative flex items-center justify-center">
-              {partnerConnected ? (
+              {remoteStream ? (
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+              ) : connected ? (
                 <div className="text-center">
                   {partnerAvatar ? (
                     <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-white/60 mx-auto mb-3 animate-float">
@@ -359,10 +382,10 @@ export default function BoothPage() {
                     <div className="text-7xl mb-3 animate-float">💌</div>
                   )}
                   <p className="text-lavender-400 font-bold text-sm">
-                    Partner&apos;s Camera
+                    Partner Connected
                   </p>
                   <p className="text-lavender-300 text-xs mt-1">
-                    Connected &amp; ready to capture
+                    Waiting for camera...
                   </p>
                 </div>
               ) : (
@@ -370,6 +393,9 @@ export default function BoothPage() {
                   <div className="text-5xl mb-3 animate-pulse-soft">💌</div>
                   <p className="text-lavender-400 font-bold text-sm">
                     Waiting for partner...
+                  </p>
+                  <p className="text-lavender-300 text-xs mt-1">
+                    Share room code: <span className="font-bold text-lavender-500">{roomCode}</span>
                   </p>
                 </div>
               )}
