@@ -34,6 +34,7 @@ app.include_router(memories_router, prefix="/api")
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, list[WebSocket]] = {}
+        self.connection_names: dict[str, dict[str, WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, room_code: str):
         await websocket.accept()
@@ -64,11 +65,19 @@ manager = ConnectionManager()
 @app.websocket("/ws/{room_code}/{user_name}")
 async def websocket_endpoint(websocket: WebSocket, room_code: str, user_name: str):
     await manager.connect(websocket, room_code)
-    members = len(manager.active_connections.get(room_code, []))
+    members = manager.active_connections.get(room_code, [])
+    member_count = len(members)
+    existing_members = [name for name in manager.connection_names.get(room_code, []) if name != user_name]
+    manager.connection_names.setdefault(room_code, {})[user_name] = websocket
     await manager.broadcast(
         room_code,
-        {"type": "user_joined", "user_name": user_name, "members": members},
+        {"type": "user_joined", "user_name": user_name, "members": member_count},
     )
+    await websocket.send_json({
+        "type": "existing_members",
+        "members": existing_members,
+        "member_count": member_count,
+    })
     try:
         while True:
             data = await websocket.receive_text()
@@ -82,6 +91,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, user_name: st
                         except Exception:
                             pass
     except WebSocketDisconnect:
+        if room_code in manager.connection_names and user_name in manager.connection_names[room_code]:
+            del manager.connection_names[room_code][user_name]
         manager.disconnect(websocket, room_code)
         await manager.broadcast(
             room_code,
