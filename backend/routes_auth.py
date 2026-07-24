@@ -9,6 +9,9 @@ from auth import hash_password, verify_password, create_access_token, get_curren
 
 router = APIRouter()
 
+ALLOWED_EMAIL = "love@togetherframe.com"
+ALLOWED_PASSWORD = "TogetherFrame2026!"
+
 
 def generate_room_code():
     chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -32,31 +35,25 @@ def get_or_create_guest(db: Session, name: str, avatar: str) -> User:
 
 @router.post("/auth/register", response_model=TokenResponse)
 async def register(data: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == data.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(
-        id=str(uuid.uuid4()),
-        name=data.name,
-        email=data.email,
-        password_hash=hash_password(data.password),
-        avatar=data.avatar,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    token = create_access_token({"sub": user.id})
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse(id=user.id, name=user.name, email=user.email, avatar=user.avatar),
-    )
+    raise HTTPException(status_code=403, detail="Registration is disabled")
 
 
 @router.post("/auth/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
-    if not user or not verify_password(data.password, user.password_hash):
+    if data.email != ALLOWED_EMAIL or data.password != ALLOWED_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        user = User(
+            id=str(uuid.uuid4()),
+            name="Pratha",
+            email=ALLOWED_EMAIL,
+            password_hash=hash_password(ALLOWED_PASSWORD),
+            avatar="",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
     token = create_access_token({"sub": user.id})
     return TokenResponse(
         access_token=token,
@@ -71,7 +68,7 @@ async def create_room(
     current_user: User = Depends(get_current_user),
 ):
     if current_user is None:
-        current_user = get_or_create_guest(db, data.name, data.avatar)
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     room_code = generate_room_code()
     while db.query(Room).filter(Room.room_code == room_code).first():
@@ -106,7 +103,7 @@ async def join_room(
     current_user: User = Depends(get_current_user),
 ):
     if current_user is None:
-        current_user = get_or_create_guest(db, data.name, data.avatar)
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     room = db.query(Room).filter(Room.room_code == data.room_code.upper()).first()
     if not room:
