@@ -135,11 +135,17 @@ export default function BoothPage() {
     setPartnerPhotoReady(true);
   }, []);
 
-  const { remoteStream, connected, peerCount, sendPhoto } = useWebRTC({
+  const handlePartnerPhotos = useCallback((photos: string[]) => {
+    sessionStorage.setItem("partnerPhotos", JSON.stringify(photos));
+    setPartnerPhotoReady(true);
+  }, []);
+
+  const { remoteStream, connected, peerCount, sendPhoto, sendPhotos } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
     onPhotoReceived: handlePhotoReceived,
+    onPhotosReceived: handlePartnerPhotos,
   });
 
   const startCamera = useCallback(async () => {
@@ -259,7 +265,7 @@ export default function BoothPage() {
   }, [router]);
 
   const startCountdown = async () => {
-    sessionStorage.removeItem("partnerPhoto");
+    sessionStorage.removeItem("partnerPhotos");
     setCapturedPhotos([]);
     setLocalPhotoReady(false);
     setPartnerPhotoReady(false);
@@ -268,18 +274,12 @@ export default function BoothPage() {
     if (photos.length === 0) return;
     setIsComposing(true);
     try {
-      let finalImage: string;
-      if (photos.length === 1) {
-        finalImage = photos[0];
-      } else {
-        finalImage = await composeLayout(photos, frameLayout);
-      }
-      sessionStorage.setItem("capturedPhoto", finalImage);
+      sessionStorage.setItem("localPhotos", JSON.stringify(photos));
       sessionStorage.setItem("selectedFrame", selectedFrame);
       setLocalPhotoReady(true);
 
       if (connected) {
-        sendPhoto(finalImage);
+        sendPhotos(photos);
         setWaitingForPartner(true);
         waitTimeoutRef.current = setTimeout(() => {
           navigateToEditor();
@@ -288,7 +288,7 @@ export default function BoothPage() {
         navigateToEditor();
       }
     } catch {
-      sessionStorage.setItem("capturedPhoto", photos[0]);
+      sessionStorage.setItem("localPhotos", JSON.stringify(photos));
       sessionStorage.setItem("selectedFrame", selectedFrame);
       navigateToEditor();
     } finally {

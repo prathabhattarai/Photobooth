@@ -14,9 +14,10 @@ interface UseWebRTCProps {
   userName: string;
   localStream: MediaStream | null;
   onPhotoReceived?: (photoDataUrl: string) => void;
+  onPhotosReceived?: (photos: string[]) => void;
 }
 
-export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: UseWebRTCProps) {
+export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived }: UseWebRTCProps) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connected, setConnected] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
@@ -35,6 +36,9 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: 
   const onPhotoReceivedRef = useRef(onPhotoReceived);
   onPhotoReceivedRef.current = onPhotoReceived;
 
+  const onPhotosReceivedRef = useRef(onPhotosReceived);
+  onPhotosReceivedRef.current = onPhotosReceived;
+
   const sendWs = useCallback((data: Record<string, unknown>) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -44,6 +48,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: 
 
   const sendPhoto = useCallback((photoDataUrl: string) => {
     sendWs({ type: "photo_captured", photoData: photoDataUrl, peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const sendPhotos = useCallback((photos: string[]) => {
+    sendWs({ type: "photos_captured", photos, peerId: peerIdRef.current });
   }, [sendWs]);
 
   const createAndSendOffer = useCallback(async (pc: RTCPeerConnection) => {
@@ -200,6 +208,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: 
       if (msg.type === "photo_captured" && msg.peerId !== peerIdRef.current) {
         onPhotoReceivedRef.current?.(msg.photoData);
       }
+
+      if (msg.type === "photos_captured" && msg.peerId !== peerIdRef.current) {
+        onPhotosReceivedRef.current?.(msg.photos);
+      }
     };
 
     return () => {
@@ -239,5 +251,5 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived }: 
     }
   }, [localStream, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
-  return { remoteStream, connected, peerCount, sendPhoto };
+  return { remoteStream, connected, peerCount, sendPhoto, sendPhotos };
 }

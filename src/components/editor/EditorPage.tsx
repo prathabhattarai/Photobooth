@@ -26,22 +26,31 @@ type EditorTab = "frames" | "stickers" | "text" | "filters";
 export default function EditorPage() {
   const router = useRouter();
   const { saveMemoryToAPI, currentRoomCode, editorState, updateEditorState } = useApp();
-  const [localPhotoUrl, setLocalPhotoUrl] = useState<string | null>(null);
-  const [partnerPhotoUrl, setPartnerPhotoUrl] = useState<string | null>(null);
+  const [localPhotos, setLocalPhotos] = useState<string[]>([]);
+  const [partnerPhotos, setPartnerPhotos] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<EditorTab>("frames");
   const [textInput, setTextInput] = useState("");
   const [caption, setCaption] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const hasPartner = !!partnerPhotoUrl;
+  const hasPartner = partnerPhotos.length > 0;
 
   useEffect(() => {
-    const local = sessionStorage.getItem("capturedPhoto");
-    const partner = sessionStorage.getItem("partnerPhoto");
+    const localJson = sessionStorage.getItem("localPhotos");
+    const partnerJson = sessionStorage.getItem("partnerPhotos");
     const frame = sessionStorage.getItem("selectedFrame") as FrameType | null;
-    if (local) setLocalPhotoUrl(local);
-    if (partner) setPartnerPhotoUrl(partner);
+    if (localJson) {
+      try { setLocalPhotos(JSON.parse(localJson)); } catch { /* ignore */ }
+    } else {
+      const single = sessionStorage.getItem("capturedPhoto");
+      if (single) setLocalPhotos([single]);
+    }
+    if (partnerJson) {
+      try { setPartnerPhotos(JSON.parse(partnerJson)); } catch { /* ignore */ }
+    } else {
+      const single = sessionStorage.getItem("partnerPhoto");
+      if (single) setPartnerPhotos([single]);
+    }
     if (frame) updateEditorState({ selectedFrame: frame });
   }, [updateEditorState]);
 
@@ -85,26 +94,28 @@ export default function EditorPage() {
   };
 
   const handleDownload = useCallback(async () => {
-    if (!localPhotoUrl) return;
+    if (localPhotos.length === 0) return;
     const finalImage = await composeCoupleFrame(
-      localPhotoUrl, partnerPhotoUrl, editorState.selectedFrame,
+      localPhotos, partnerPhotos, editorState.selectedFrame,
       editorState.stickers, textInput, getFilterCSS(editorState.filter)
     );
     const link = document.createElement("a");
     link.download = `togetherframe-${Date.now()}.png`;
     link.href = finalImage;
     link.click();
-  }, [localPhotoUrl, partnerPhotoUrl, editorState, textInput]);
+  }, [localPhotos, partnerPhotos, editorState, textInput]);
 
   const handleSave = async () => {
-    if (!localPhotoUrl) return;
+    if (localPhotos.length === 0) return;
     const finalImage = await composeCoupleFrame(
-      localPhotoUrl, partnerPhotoUrl, editorState.selectedFrame,
+      localPhotos, partnerPhotos, editorState.selectedFrame,
       editorState.stickers, textInput, getFilterCSS(editorState.filter)
     );
     const captionText = caption || editorState.caption || "Our cute moment 💕";
     const roomCode = currentRoomCode || "local";
     await saveMemoryToAPI(roomCode, finalImage, captionText, editorState.selectedFrame);
+    sessionStorage.removeItem("localPhotos");
+    sessionStorage.removeItem("partnerPhotos");
     sessionStorage.removeItem("capturedPhoto");
     sessionStorage.removeItem("partnerPhoto");
     sessionStorage.removeItem("selectedFrame");
@@ -134,7 +145,7 @@ export default function EditorPage() {
     "same-moment": "from-lavender-50 to-lavender-100",
   };
 
-  if (!localPhotoUrl) {
+  if (localPhotos.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -154,7 +165,6 @@ export default function EditorPage() {
     <div className="min-h-screen relative overflow-hidden">
       <FloatingElements />
       <div className="relative z-10 max-w-5xl mx-auto px-4 py-6">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -167,9 +177,9 @@ export default function EditorPage() {
               </button>
             </Link>
             <div>
-              <h1 className="font-bold text-gray-700">Edit Your Photo</h1>
+              <h1 className="font-bold text-gray-700">Edit Your Photos</h1>
               <p className="text-xs text-gray-400">
-                Add frames, stickers, and filters ✨
+                {localPhotos.length} photos{hasPartner ? ` + ${partnerPhotos.length} partner` : ""} ✨
               </p>
             </div>
           </div>
@@ -190,7 +200,6 @@ export default function EditorPage() {
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Photo Preview */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -199,7 +208,6 @@ export default function EditorPage() {
           >
             <div className="glass-card rounded-3xl p-6 relative">
               <div className="relative overflow-hidden rounded-2xl">
-                {/* Frame border */}
                 <div
                   className={`absolute inset-0 rounded-2xl z-10 pointer-events-none ${
                     frameColors[editorState.selectedFrame]
@@ -208,16 +216,14 @@ export default function EditorPage() {
                   }`}
                 />
 
-                {/* Photo(s) */}
                 <div className="relative max-h-[60vh] overflow-hidden rounded-2xl">
                   <CoupleFramePreview
-                    localPhoto={localPhotoUrl}
-                    partnerPhoto={partnerPhotoUrl}
+                    localPhotos={localPhotos}
+                    partnerPhotos={partnerPhotos}
                     frame={editorState.selectedFrame}
                     filter={getFilterCSS(editorState.filter)}
                   />
 
-                  {/* Stickers overlay */}
                   {editorState.stickers.map((s) => (
                     <div
                       key={s.id}
@@ -237,7 +243,6 @@ export default function EditorPage() {
                     </div>
                   ))}
 
-                  {/* Text overlay */}
                   {textInput && (
                     <div className="absolute bottom-4 left-0 right-0 text-center z-20">
                       <span className="handwriting text-3xl text-white drop-shadow-lg bg-black/20 px-4 py-1 rounded-full">
@@ -246,12 +251,10 @@ export default function EditorPage() {
                     </div>
                   )}
 
-                  {/* Frame decoration */}
                   <FrameDecoration frame={editorState.selectedFrame} hasPartner={hasPartner} />
                 </div>
               </div>
 
-              {/* Caption */}
               <div className="mt-4 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-pink-300" />
                 <input
@@ -263,7 +266,6 @@ export default function EditorPage() {
                 />
               </div>
 
-              {/* Date */}
               <div className="mt-3 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-lavender-300" />
                 <span className="text-sm text-gray-400 handwriting text-lg">
@@ -277,14 +279,12 @@ export default function EditorPage() {
             </div>
           </motion.div>
 
-          {/* Editing Tools */}
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
             className="glass-card rounded-3xl p-6"
           >
-            {/* Tab bar */}
             <div className="flex gap-1 mb-6 bg-white/50 rounded-2xl p-1">
               {tabs.map((tab) => (
                 <button
@@ -302,7 +302,6 @@ export default function EditorPage() {
               ))}
             </div>
 
-            {/* Tab content */}
             <AnimatePresence mode="wait">
               {activeTab === "frames" && (
                 <motion.div
@@ -493,254 +492,6 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-const FRAME_GRADIENT_COLORS: Record<FrameType, [string, string]> = {
-  polaroid: ["#f9fafb", "#f3f4f6"],
-  "photobooth-strip": ["#fff1f2", "#ffe4e6"],
-  scrapbook: ["#fffbeb", "#fef3c7"],
-  "pink-heart": ["#fce7f3", "#ffe4e6"],
-  "miles-apart": ["#eff6ff", "#ecfeff"],
-  "cloud-stars": ["#eff6ff", "#e0e7ff"],
-  "bear-bunny": ["#fef3c7", "#ffedd5"],
-  "love-letter": ["#fef2f2", "#fce7f3"],
-  "same-moment": ["#faf5ff", "#f3e8ff"],
-};
-
-const FRAME_DECORATIONS: Record<FrameType, { emojis: { text: string; x: number; y: number; size: number }[]; border?: string; label?: string; labelY?: number }> = {
-  "pink-heart": {
-    emojis: [
-      { text: "💕", x: 0.92, y: 0.08, size: 28 },
-      { text: "💗", x: 0.08, y: 0.92, size: 28 },
-      { text: "✨", x: 0.08, y: 0.08, size: 20 },
-      { text: "🎀", x: 0.92, y: 0.92, size: 20 },
-    ],
-    border: "2px solid rgba(236, 72, 153, 0.35)",
-  },
-  scrapbook: {
-    emojis: [
-      { text: "🌸", x: 0.9, y: 0.06, size: 18 },
-      { text: "🌼", x: 0.08, y: 0.9, size: 18 },
-    ],
-  },
-  "miles-apart": {
-    emojis: [
-      { text: "🌍", x: 0.08, y: 0.92, size: 20 },
-      { text: "💕", x: 0.92, y: 0.92, size: 20 },
-    ],
-    border: "2px dashed rgba(96, 165, 250, 0.4)",
-    label: "Miles Apart, Together at Heart 💕",
-    labelY: 0.06,
-  },
-  "cloud-stars": {
-    emojis: [
-      { text: "☁️", x: 0.88, y: 0.06, size: 22 },
-      { text: "⭐", x: 0.1, y: 0.08, size: 20 },
-      { text: "✨", x: 0.5, y: 0.04, size: 16 },
-      { text: "🌙", x: 0.5, y: 0.94, size: 22 },
-    ],
-  },
-  "bear-bunny": {
-    emojis: [
-      { text: "🐻", x: 0.06, y: 0.06, size: 26 },
-      { text: "🐰", x: 0.94, y: 0.06, size: 26 },
-      { text: "💕", x: 0.5, y: 0.94, size: 16 },
-    ],
-  },
-  "love-letter": {
-    emojis: [
-      { text: "💌", x: 0.9, y: 0.06, size: 20 },
-      { text: "💝", x: 0.1, y: 0.06, size: 20 },
-    ],
-    border: "2px solid rgba(252, 165, 165, 0.4)",
-    label: "With all my love",
-    labelY: 0.93,
-  },
-  polaroid: {
-    emojis: [],
-    border: "1px solid rgba(255,255,255,0.5)",
-  },
-  "photobooth-strip": {
-    emojis: [
-      { text: "📸", x: 0.88, y: 0.06, size: 16 },
-    ],
-  },
-  "same-moment": {
-    emojis: [],
-    border: "2px solid rgba(196, 181, 253, 0.4)",
-    label: "Same Moment 🕐",
-    labelY: 0.06,
-  },
-};
-
-async function composeCoupleFrame(
-  localPhoto: string,
-  partnerPhoto: string | null,
-  frame: FrameType,
-  stickers: PlacedSticker[],
-  text: string,
-  filter: string
-): Promise<string> {
-  const localImg = await loadImage(localPhoto);
-  const partnerImg = partnerPhoto ? await loadImage(partnerPhoto) : null;
-
-  const PAD = 40;
-  const GAP = 16;
-  const CORNER_R = 20;
-
-  let W: number, H: number;
-  let photoW: number, photoH: number;
-
-  if (partnerImg) {
-    W = 800;
-    H = 600;
-    photoW = (W - PAD * 2 - GAP) / 2;
-    photoH = H - PAD * 2;
-  } else {
-    const maxDim = 800;
-    const scale = maxDim / Math.max(localImg.width, localImg.height);
-    W = Math.round(localImg.width * scale);
-    H = Math.round(localImg.height * scale);
-    photoW = W - PAD * 2;
-    photoH = H - PAD * 2;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return localPhoto;
-
-  const [c1, c2] = FRAME_GRADIENT_COLORS[frame] || ["#fff", "#f9fafb"];
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, c1);
-  grad.addColorStop(1, c2);
-  ctx.fillStyle = grad;
-  roundRect(ctx, 0, 0, W, H, CORNER_R);
-  ctx.fill();
-
-  const decor = FRAME_DECORATIONS[frame];
-
-  function drawPhoto(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
-    ctx!.save();
-    roundRect(ctx!, x, y, w, h, 12);
-    ctx!.clip();
-    const imgRatio = img.width / img.height;
-    const slotRatio = w / h;
-    let sx = 0, sy = 0, sw = img.width, sh = img.height;
-    if (imgRatio > slotRatio) { sw = img.height * slotRatio; sx = (img.width - sw) / 2; }
-    else { sh = img.width / slotRatio; sy = (img.height - sh) / 2; }
-    ctx!.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-    ctx!.restore();
-  }
-
-  if (partnerImg) {
-    const x1 = PAD;
-    const x2 = PAD + photoW + GAP;
-    const y = PAD;
-    drawPhoto(localImg, x1, y, photoW, photoH);
-    drawPhoto(partnerImg, x2, y, photoW, photoH);
-
-    if (frame === "polaroid") {
-      ctx.save();
-      const px = x1 + photoW / 2;
-      const py = y + photoH + 24;
-      ctx.font = "11px serif";
-      ctx.fillStyle = "#9ca3af";
-      ctx.textAlign = "center";
-      ctx.fillText("You", px, py);
-      ctx.fillText("Partner", x2 + photoW / 2, py);
-      ctx.restore();
-    }
-  } else {
-    drawPhoto(localImg, PAD, PAD, photoW, photoH);
-  }
-
-  if (filter) {
-    ctx.save();
-    ctx.filter = filter;
-    if (partnerImg) {
-      ctx.globalCompositeOperation = "source-atop";
-      ctx.fillStyle = "rgba(0,0,0,0)";
-      ctx.fillRect(0, 0, W, H);
-    }
-    ctx.restore();
-  }
-
-  if (decor.border) {
-    ctx.save();
-    ctx.strokeStyle = decor.border;
-    ctx.lineWidth = 2;
-    if (partnerImg) {
-      roundRect(ctx, PAD - 4, PAD - 4, photoW + 8, photoH + 8, 14);
-      ctx.stroke();
-      roundRect(ctx, PAD + photoW + GAP - 4, PAD - 4, photoW + 8, photoH + 8, 14);
-      ctx.stroke();
-    } else {
-      roundRect(ctx, PAD - 4, PAD - 4, photoW + 8, photoH + 8, 14);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  if (decor.label && decor.labelY !== undefined) {
-    ctx.save();
-    const labelY = H * decor.labelY;
-    ctx.font = "bold 13px Inter, sans-serif";
-    ctx.textAlign = "center";
-    if (frame === "love-letter") {
-      ctx.fillStyle = "#f87171";
-      ctx.font = "italic 13px Caveat, cursive";
-    } else if (frame === "miles-apart") {
-      const tw = ctx.measureText(decor.label).width;
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      roundRect(ctx, W / 2 - tw / 2 - 12, labelY - 12, tw + 24, 24, 12);
-      ctx.fill();
-      ctx.fillStyle = "#60a5fa";
-    } else {
-      ctx.fillStyle = "#a78bfa";
-      const tw = ctx.measureText(decor.label).width;
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      roundRect(ctx, W / 2 - tw / 2 - 12, labelY - 12, tw + 24, 24, 12);
-      ctx.fill();
-      ctx.fillStyle = "#a78bfa";
-    }
-    ctx.fillText(decor.label, W / 2, labelY + 4);
-    ctx.restore();
-  }
-
-  for (const e of decor.emojis) {
-    ctx.save();
-    ctx.font = `${e.size}px serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(e.text, e.x * W, e.y * H);
-    ctx.restore();
-  }
-
-  if (text) {
-    ctx.save();
-    const fontSize = Math.max(20, Math.floor(W * 0.04));
-    ctx.font = `bold ${fontSize}px Caveat, cursive`;
-    ctx.fillStyle = "white";
-    ctx.shadowColor = "rgba(0,0,0,0.6)";
-    ctx.shadowBlur = 10;
-    ctx.textAlign = "center";
-    ctx.fillText(text, W / 2, H - 30);
-    ctx.restore();
-  }
-
-  stickers.forEach((s) => {
-    ctx.save();
-    const fontSize = Math.max(20, Math.floor(W * 0.05));
-    ctx.font = `${fontSize}px serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(s.emoji, (s.x / 100) * W, (s.y / 100) * H);
-    ctx.restore();
-  });
-
-  return canvas.toDataURL("image/png");
-}
-
 function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -762,170 +513,312 @@ function roundRect(
   ctx.closePath();
 }
 
+const FRAME_BG: Record<FrameType, [string, string]> = {
+  polaroid: ["#f9fafb", "#f3f4f6"],
+  "photobooth-strip": ["#fff1f2", "#ffe4e6"],
+  scrapbook: ["#fffbeb", "#fef3c7"],
+  "pink-heart": ["#fce7f3", "#ffe4e6"],
+  "miles-apart": ["#eff6ff", "#ecfeff"],
+  "cloud-stars": ["#eff6ff", "#e0e7ff"],
+  "bear-bunny": ["#fef3c7", "#ffedd5"],
+  "love-letter": ["#fef2f2", "#fce7f3"],
+  "same-moment": ["#faf5ff", "#f3e8ff"],
+};
+
+async function composeCoupleFrame(
+  localPhotos: string[],
+  partnerPhotos: string[],
+  frame: FrameType,
+  stickers: PlacedSticker[],
+  text: string,
+  filter: string
+): Promise<string> {
+  const localImgs = await Promise.all(localPhotos.map(loadImage));
+  const partnerImgs = partnerPhotos.length > 0
+    ? await Promise.all(partnerPhotos.map(loadImage))
+    : [];
+
+  const W = 800;
+  const H = 600;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return localPhotos[0] || "";
+
+  const [c1, c2] = FRAME_BG[frame] || ["#fff", "#f9fafb"];
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, c1);
+  grad.addColorStop(1, c2);
+  ctx.fillStyle = grad;
+  roundRect(ctx, 0, 0, W, H, 20);
+  ctx.fill();
+
+  function drawPhotoSlot(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
+    const c = ctx!;
+    c.save();
+    roundRect(c, x, y, w, h, 10);
+    c.clip();
+    const imgRatio = img.width / img.height;
+    const slotRatio = w / h;
+    let sx = 0, sy = 0, sw = img.width, sh = img.height;
+    if (imgRatio > slotRatio) { sw = img.height * slotRatio; sx = (img.width - sw) / 2; }
+    else { sh = img.width / slotRatio; sy = (img.height - sh) / 2; }
+    c.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+    c.restore();
+  }
+
+  const PAD = 30;
+  const GAP = 10;
+
+  if (partnerImgs.length > 0) {
+    if (frame === "photobooth-strip") {
+      const colW = (W - PAD * 2 - GAP) / 2;
+      const slotH = (H - PAD * 2 - GAP * 3) / 4;
+      for (let i = 0; i < Math.min(4, localImgs.length); i++) {
+        drawPhotoSlot(localImgs[i], PAD, PAD + i * (slotH + GAP), colW, slotH);
+      }
+      for (let i = 0; i < Math.min(4, partnerImgs.length); i++) {
+        drawPhotoSlot(partnerImgs[i], PAD + colW + GAP, PAD + i * (slotH + GAP), colW, slotH);
+      }
+    } else {
+      const gridW = (W - PAD * 2 - GAP) / 2;
+      const gridH = (H - PAD * 2 - GAP) / 2;
+      const positions = [
+        [PAD, PAD],
+        [PAD + gridW + GAP, PAD],
+        [PAD, PAD + gridH + GAP],
+        [PAD + gridW + GAP, PAD + gridH + GAP],
+      ];
+      for (let i = 0; i < 4; i++) {
+        const li = i < localImgs.length ? localImgs[i] : localImgs[0];
+        const pi = i < partnerImgs.length ? partnerImgs[i] : partnerImgs[0];
+        if (i % 2 === 0) {
+          drawPhotoSlot(li, positions[i][0], positions[i][1], gridW, gridH);
+        } else {
+          drawPhotoSlot(pi, positions[i][0], positions[i][1], gridW, gridH);
+        }
+      }
+    }
+  } else {
+    if (localImgs.length === 1) {
+      drawPhotoSlot(localImgs[0], PAD, PAD, W - PAD * 2, H - PAD * 2);
+    } else if (localImgs.length <= 2) {
+      const slotW = (W - PAD * 2 - GAP) / 2;
+      for (let i = 0; i < localImgs.length; i++) {
+        drawPhotoSlot(localImgs[i], PAD + i * (slotW + GAP), PAD, slotW, H - PAD * 2);
+      }
+    } else if (localImgs.length <= 4) {
+      const gridW = (W - PAD * 2 - GAP) / 2;
+      const gridH = (H - PAD * 2 - GAP) / 2;
+      const positions = [
+        [PAD, PAD], [PAD + gridW + GAP, PAD],
+        [PAD, PAD + gridH + GAP], [PAD + gridW + GAP, PAD + gridH + GAP],
+      ];
+      for (let i = 0; i < localImgs.length; i++) {
+        drawPhotoSlot(localImgs[i], positions[i][0], positions[i][1], gridW, gridH);
+      }
+    } else {
+      const slotW = (W - PAD * 2 - GAP) / 2;
+      const slotH = (H - PAD * 2 - GAP) / 2;
+      for (let i = 0; i < Math.min(4, localImgs.length); i++) {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        drawPhotoSlot(localImgs[i], PAD + col * (slotW + GAP), PAD + row * (slotH + GAP), slotW, slotH);
+      }
+    }
+  }
+
+  if (text) {
+    ctx.save();
+    const fontSize = Math.max(20, Math.floor(W * 0.04));
+    ctx.font = `bold ${fontSize}px Caveat, cursive`;
+    ctx.fillStyle = "white";
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 10;
+    ctx.textAlign = "center";
+    ctx.fillText(text, W / 2, H - 16);
+    ctx.restore();
+  }
+
+  stickers.forEach((s) => {
+    ctx.save();
+    const fontSize = Math.max(20, Math.floor(W * 0.05));
+    ctx.font = `${fontSize}px serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s.emoji, (s.x / 100) * W, (s.y / 100) * H);
+    ctx.restore();
+  });
+
+  return canvas.toDataURL("image/png");
+}
+
 function CoupleFramePreview({
-  localPhoto,
-  partnerPhoto,
+  localPhotos,
+  partnerPhotos,
   frame,
   filter,
 }: {
-  localPhoto: string | null;
-  partnerPhoto: string | null;
+  localPhotos: string[];
+  partnerPhotos: string[];
   frame: FrameType;
   filter?: string;
 }) {
-  if (!localPhoto) return null;
+  if (localPhotos.length === 0) return null;
+  const photoStyle = filter ? { filter } : {};
 
-  if (!partnerPhoto) {
+  if (partnerPhotos.length === 0) {
+    if (localPhotos.length <= 1) {
+      return (
+        <img
+          src={localPhotos[0]}
+          alt="Your photo"
+          className="w-full rounded-2xl"
+          style={{ filter, objectFit: "contain" }}
+        />
+      );
+    }
     return (
-      /* eslint-disable-next-line @next/next/no-img-element */
-      <img
-        src={localPhoto}
-        alt="Your photo"
-        className="w-full rounded-2xl"
-        style={{ filter, objectFit: "contain" }}
-      />
+      <div className={`grid gap-2 p-4 bg-gradient-to-br ${SoloBG[frame]} justify-center items-center min-h-[300px]`}>
+        {localPhotos.map((src, i) => (
+          <img key={i} src={src} alt={`Photo ${i + 1}`} className="w-full rounded-xl object-cover" style={photoStyle} />
+        ))}
+      </div>
     );
   }
 
-  const bgClass: Record<FrameType, string> = {
-    polaroid: "from-gray-50 to-gray-100",
-    "photobooth-strip": "from-pink-50 to-rose-100",
-    scrapbook: "from-amber-50 to-amber-100",
-    "pink-heart": "from-pink-100 to-rose-100",
-    "miles-apart": "from-blue-50 to-cyan-50",
-    "cloud-stars": "from-blue-50 to-indigo-100",
-    "bear-bunny": "from-amber-50 to-orange-50",
-    "love-letter": "from-red-50 to-pink-100",
-    "same-moment": "from-lavender-50 to-lavender-100",
-  };
+  if (frame === "photobooth-strip") {
+    return (
+      <div className={`flex gap-3 p-4 bg-gradient-to-br ${CoupleBG[frame]} min-h-[400px]`}>
+        <div className="flex-1 flex flex-col gap-2">
+          {localPhotos.slice(0, 4).map((src, i) => (
+            <div key={`l${i}`} className="flex-1 bg-white rounded-xl p-1.5 shadow-md border-2 border-pink-200/50">
+              <img src={src} alt={`You ${i + 1}`} className="w-full h-full object-cover rounded-lg" style={photoStyle} />
+            </div>
+          ))}
+        </div>
+        <div className="flex-1 flex flex-col gap-2">
+          {partnerPhotos.slice(0, 4).map((src, i) => (
+            <div key={`p${i}`} className="flex-1 bg-white rounded-xl p-1.5 shadow-md border-2 border-pink-200/50">
+              <img src={src} alt={`Partner ${i + 1}`} className="w-full h-full object-cover rounded-lg" style={photoStyle} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  const photoStyle = filter ? { filter } : {};
+  const grid4 = (local: string[], partner: string[]) => {
+    const slots = [
+      local[0] || local[0], partner[0] || partner[0],
+      local[1] || local[0], partner[1] || partner[0],
+    ];
+    return (
+      <div className={`grid grid-cols-2 gap-3 p-6 bg-gradient-to-br ${CoupleBG[frame]} justify-items-center items-center min-h-[300px]`}>
+        {slots.map((src, i) => (
+          <div key={i} className={`rounded-2xl overflow-hidden shadow-lg ${FrameBorder[frame]}`}>
+            <img src={src} alt={i % 2 === 0 ? "You" : "Partner"} className="w-full h-36 object-cover" style={photoStyle} />
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   switch (frame) {
     case "polaroid":
       return (
-        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+        <div className={`flex gap-6 p-8 bg-gradient-to-br ${CoupleBG[frame]} justify-center items-center min-h-[300px]`}>
           <div className="bg-white p-2 pb-10 shadow-lg rotate-[-2deg] rounded-sm">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+            <img src={localPhotos[0]} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
             <p className="text-center text-[10px] text-gray-400 mt-1 font-serif">You</p>
           </div>
           <div className="bg-white p-2 pb-10 shadow-lg rotate-[2deg] rounded-sm">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+            <img src={partnerPhotos[0]} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
             <p className="text-center text-[10px] text-gray-400 mt-1 font-serif">Partner</p>
-          </div>
-        </div>
-      );
-    case "photobooth-strip":
-      return (
-        <div className={`flex gap-3 p-4 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
-          <div className="bg-white rounded-xl p-2 shadow-md border-2 border-pink-200/50">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={localPhoto} alt="You" className="w-40 h-52 object-cover rounded-lg" style={photoStyle} />
-          </div>
-          <div className="bg-white rounded-xl p-2 shadow-md border-2 border-pink-200/50">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={partnerPhoto} alt="Partner" className="w-40 h-52 object-cover rounded-lg" style={photoStyle} />
           </div>
         </div>
       );
     case "scrapbook":
       return (
-        <div className={`flex gap-6 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+        <div className={`flex gap-6 p-6 bg-gradient-to-br ${CoupleBG[frame]} justify-center items-center min-h-[300px]`}>
           <div className="relative rotate-[-3deg] shadow-md">
             <div className="absolute -top-2 left-4 w-12 h-5 bg-amber-200/70 rotate-[-2deg] rounded" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
+            <img src={localPhotos[0]} alt="You" className="w-48 h-36 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
           </div>
           <div className="relative rotate-[2deg] shadow-md">
             <div className="absolute -top-2 right-4 w-12 h-5 bg-pink-200/70 rotate-[3deg] rounded" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
+            <img src={partnerPhotos[0]} alt="Partner" className="w-48 h-36 object-cover rounded border-2 border-amber-200/40" style={photoStyle} />
           </div>
         </div>
       );
     case "pink-heart":
-      return (
-        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
-          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-pink-300/40">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
-          </div>
-          <div className="text-3xl">💕</div>
-          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-pink-300/40">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
-          </div>
-        </div>
-      );
+      return grid4(localPhotos, partnerPhotos);
     case "miles-apart":
       return (
-        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${bgClass[frame]} min-h-[300px]`}>
+        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${CoupleBG[frame]} min-h-[300px]`}>
           <div className="bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-blue-400 mb-2">
             Miles Apart, Together at Heart 💕
           </div>
-          <div className="flex gap-3">
-            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+          <div className="flex gap-4 flex-1 w-full">
+            <div className="flex-1 flex flex-col gap-2">
+              {localPhotos.slice(0, 2).map((src, i) => (
+                <div key={i} className="flex-1 rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
+                  <img src={src} alt={`You ${i + 1}`} className="w-full h-full object-cover" style={photoStyle} />
+                </div>
+              ))}
             </div>
             <div className="flex flex-col items-center justify-center gap-1">
               <span className="text-lg">🌍</span>
               <span className="text-lg">💕</span>
             </div>
-            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+            <div className="flex-1 flex flex-col gap-2">
+              {partnerPhotos.slice(0, 2).map((src, i) => (
+                <div key={i} className="flex-1 rounded-xl overflow-hidden shadow-md border-2 border-dashed border-blue-300/40">
+                  <img src={src} alt={`Partner ${i + 1}`} className="w-full h-full object-cover" style={photoStyle} />
+                </div>
+              ))}
             </div>
           </div>
         </div>
       );
     case "cloud-stars":
-      return (
-        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
-          <div className="text-xl absolute top-3 left-4">⭐</div>
-          <div className="text-xl absolute top-3 right-4">☁️</div>
-          <div className="relative rounded-2xl overflow-hidden shadow-lg">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover rounded-2xl" style={photoStyle} />
-          </div>
-          <div className="text-xl">🌙</div>
-          <div className="relative rounded-2xl overflow-hidden shadow-lg">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover rounded-2xl" style={photoStyle} />
-          </div>
-        </div>
-      );
+      return grid4(localPhotos, partnerPhotos);
     case "bear-bunny":
       return (
-        <div className={`flex gap-4 p-6 bg-gradient-to-br ${bgClass[frame]} justify-center items-center min-h-[300px]`}>
+        <div className={`flex gap-4 p-6 bg-gradient-to-br ${CoupleBG[frame]} justify-center items-center min-h-[300px]`}>
           <div className="text-2xl">🐻</div>
-          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
-          </div>
-          <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+          <div className="flex-1 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
+              <img src={localPhotos[0]} alt="You" className="w-full h-36 object-cover" style={photoStyle} />
+            </div>
+            <div className="rounded-2xl overflow-hidden shadow-lg border-2 border-amber-200/40">
+              <img src={partnerPhotos[0]} alt="Partner" className="w-full h-36 object-cover" style={photoStyle} />
+            </div>
           </div>
           <div className="text-2xl">🐰</div>
         </div>
       );
     case "love-letter":
       return (
-        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${bgClass[frame]} min-h-[300px]`}>
+        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${CoupleBG[frame]} min-h-[300px]`}>
           <div className="flex gap-1 text-xl">
             <span>💌</span><span>💝</span>
           </div>
-          <div className="flex gap-3">
-            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
+          <div className="flex gap-3 flex-1 w-full">
+            <div className="flex-1 flex flex-col gap-2">
+              {localPhotos.slice(0, 2).map((src, i) => (
+                <div key={i} className="flex-1 rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
+                  <img src={src} alt={`You ${i + 1}`} className="w-full h-full object-cover" style={photoStyle} />
+                </div>
+              ))}
             </div>
-            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
+            <div className="flex-1 flex flex-col gap-2">
+              {partnerPhotos.slice(0, 2).map((src, i) => (
+                <div key={i} className="flex-1 rounded-xl overflow-hidden shadow-md border-2 border-red-200/40">
+                  <img src={src} alt={`Partner ${i + 1}`} className="w-full h-full object-cover" style={photoStyle} />
+                </div>
+              ))}
             </div>
           </div>
           <p className="text-xs handwriting text-red-300">With all my love</p>
@@ -933,20 +826,26 @@ function CoupleFramePreview({
       );
     case "same-moment":
       return (
-        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${bgClass[frame]} min-h-[300px]`}>
+        <div className={`flex flex-col items-center gap-2 p-6 bg-gradient-to-br ${CoupleBG[frame]} min-h-[300px]`}>
           <div className="bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-lavender-400 mb-1">
             Same Moment 🕐
           </div>
-          <div className="flex gap-3">
-            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={localPhoto} alt="You" className="w-48 h-36 object-cover" style={photoStyle} />
-              <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">You</div>
+          <div className="flex gap-3 flex-1 w-full">
+            <div className="flex-1 flex flex-col gap-2">
+              {localPhotos.slice(0, 2).map((src, i) => (
+                <div key={i} className="flex-1 relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
+                  <img src={src} alt={`You ${i + 1}`} className="w-full h-full object-cover" style={photoStyle} />
+                  {i === 0 && <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">You</div>}
+                </div>
+              ))}
             </div>
-            <div className="relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={partnerPhoto} alt="Partner" className="w-48 h-36 object-cover" style={photoStyle} />
-              <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">Partner</div>
+            <div className="flex-1 flex flex-col gap-2">
+              {partnerPhotos.slice(0, 2).map((src, i) => (
+                <div key={i} className="flex-1 relative rounded-xl overflow-hidden shadow-md border-2 border-lavender-300/40">
+                  <img src={src} alt={`Partner ${i + 1}`} className="w-full h-full object-cover" style={photoStyle} />
+                  {i === 0 && <div className="absolute bottom-1 left-1 text-[10px] text-white bg-black/30 px-1 rounded">Partner</div>}
+                </div>
+              ))}
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-1">
@@ -955,169 +854,104 @@ function CoupleFramePreview({
         </div>
       );
     default:
-      return (
-        <div className="flex gap-4 p-4 justify-center items-center min-h-[300px]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={localPhoto} alt="You" className="w-1/2 rounded-xl object-cover" style={photoStyle} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={partnerPhoto} alt="Partner" className="w-1/2 rounded-xl object-cover" style={photoStyle} />
-        </div>
-      );
+      return grid4(localPhotos, partnerPhotos);
   }
 }
 
-function FrameDecoration({ frame, hasPartner }: { frame: FrameType; hasPartner?: boolean }) {
-  if (hasPartner) {
-    switch (frame) {
-      case "pink-heart":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-2 border-2 border-pink-300/30 rounded-xl" />
-            <div className="absolute top-2 left-2 text-lg">✨</div>
-            <div className="absolute bottom-2 right-2 text-lg">🎀</div>
-          </div>
-        );
-      case "scrapbook":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute top-2 right-2 text-sm">🌸</div>
-            <div className="absolute bottom-2 left-2 text-sm">🌼</div>
-          </div>
-        );
-      case "miles-apart":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-2 border-2 border-dashed border-blue-300/30 rounded-xl" />
-          </div>
-        );
-      case "cloud-stars":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">🌙</div>
-          </div>
-        );
-      case "bear-bunny":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">💕</div>
-          </div>
-        );
-      case "love-letter":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-2 border-2 border-red-200/30 rounded-xl" />
-          </div>
-        );
-      case "polaroid":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-2 border border-white/40 rounded" />
-          </div>
-        );
-      case "photobooth-strip":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-y-0 left-0 w-2 bg-pink-200/40" />
-            <div className="absolute inset-y-0 right-0 w-2 bg-pink-200/40" />
-          </div>
-        );
-      case "same-moment":
-        return (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-2 border-2 border-lavender-300/30 rounded-xl" />
-          </div>
-        );
-      default:
-        return null;
-    }
-  }
+const SoloBG: Record<FrameType, string> = {
+  polaroid: "from-gray-50 to-gray-100",
+  "photobooth-strip": "from-pink-50 to-rose-100",
+  scrapbook: "from-amber-50 to-amber-100",
+  "pink-heart": "from-pink-100 to-rose-100",
+  "miles-apart": "from-blue-50 to-cyan-50",
+  "cloud-stars": "from-blue-50 to-indigo-100",
+  "bear-bunny": "from-amber-50 to-orange-50",
+  "love-letter": "from-red-50 to-pink-100",
+  "same-moment": "from-lavender-50 to-lavender-100",
+};
 
+const CoupleBG: Record<FrameType, string> = {
+  polaroid: "from-gray-50 to-gray-100",
+  "photobooth-strip": "from-pink-50 to-rose-100",
+  scrapbook: "from-amber-50 to-amber-100",
+  "pink-heart": "from-pink-100 to-rose-100",
+  "miles-apart": "from-blue-50 to-cyan-50",
+  "cloud-stars": "from-blue-50 to-indigo-100",
+  "bear-bunny": "from-amber-50 to-orange-50",
+  "love-letter": "from-red-50 to-pink-100",
+  "same-moment": "from-lavender-50 to-lavender-100",
+};
+
+const FrameBorder: Record<FrameType, string> = {
+  polaroid: "",
+  "photobooth-strip": "border-2 border-pink-200/50",
+  scrapbook: "border-2 border-amber-200/40",
+  "pink-heart": "border-2 border-pink-300/40",
+  "miles-apart": "border-2 border-dashed border-blue-300/40",
+  "cloud-stars": "",
+  "bear-bunny": "border-2 border-amber-200/40",
+  "love-letter": "border-2 border-red-200/40",
+  "same-moment": "border-2 border-lavender-300/40",
+};
+
+function FrameDecoration({ frame, hasPartner }: { frame: FrameType; hasPartner?: boolean }) {
   switch (frame) {
     case "pink-heart":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute top-3 right-3 text-2xl">💕</div>
-          <div className="absolute bottom-3 left-3 text-2xl">💗</div>
-          <div className="absolute top-3 left-3 text-lg">✨</div>
-          <div className="absolute bottom-3 right-3 text-lg">🎀</div>
-          <div className="absolute inset-2 border-2 border-pink-300/40 rounded-xl" />
+          <div className="absolute inset-2 border-2 border-pink-300/30 rounded-xl" />
+          <div className="absolute top-2 left-2 text-lg">✨</div>
+          <div className="absolute bottom-2 right-2 text-lg">🎀</div>
         </div>
       );
     case "scrapbook":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute -top-2 left-8 w-16 h-6 bg-amber-100/60 rotate-[-5deg] rounded" />
-          <div className="absolute -top-1 right-12 w-14 h-5 bg-pink-100/60 rotate-[3deg] rounded" />
-          <div className="absolute top-3 right-3 text-lg">🌸</div>
-          <div className="absolute bottom-3 left-3 text-lg">🌼</div>
+          <div className="absolute top-2 right-2 text-sm">🌸</div>
+          <div className="absolute bottom-2 left-2 text-sm">🌼</div>
         </div>
       );
     case "miles-apart":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-blue-400">
-            Miles Apart, Together at Heart 💕
-          </div>
-          <div className="absolute bottom-3 left-3 text-lg">🌍</div>
-          <div className="absolute bottom-3 right-3 text-lg">💕</div>
-          <div className="absolute inset-2 border-2 border-dashed border-blue-300/40 rounded-xl" />
+          <div className="absolute inset-2 border-2 border-dashed border-blue-300/30 rounded-xl" />
         </div>
       );
     case "cloud-stars":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute top-3 right-3 text-xl">☁️</div>
-          <div className="absolute top-4 left-4 text-lg">⭐</div>
-          <div className="absolute top-3 left-1/2 text-sm">✨</div>
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xl">🌙</div>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">🌙</div>
         </div>
       );
     case "bear-bunny":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute top-3 left-3 text-2xl">🐻</div>
-          <div className="absolute top-3 right-3 text-2xl">🐰</div>
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-sm">💕</div>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">💕</div>
         </div>
       );
     case "love-letter":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute top-3 right-3 text-xl">💌</div>
-          <div className="absolute top-3 left-3 text-lg">💝</div>
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-sm handwriting text-red-300">
-            With all my love
-          </div>
-          <div className="absolute inset-2 border-2 border-red-200/40 rounded-xl" />
+          <div className="absolute inset-2 border-2 border-red-200/30 rounded-xl" />
         </div>
       );
     case "polaroid":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute inset-2 border border-white/50 rounded" />
+          <div className="absolute inset-2 border border-white/40 rounded" />
         </div>
       );
     case "photobooth-strip":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute inset-y-0 left-0 w-3 bg-pink-200/60" />
-          <div className="absolute inset-y-0 right-0 w-3 bg-pink-200/60" />
-          <div className="absolute top-3 right-4 text-sm">📸</div>
+          <div className="absolute inset-y-0 left-0 w-2 bg-pink-200/40" />
+          <div className="absolute inset-y-0 right-0 w-2 bg-pink-200/40" />
         </div>
       );
     case "same-moment":
       return (
         <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute inset-2 border-2 border-lavender-300/40 rounded-xl" />
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-white/80 px-3 py-1 rounded-full text-xs font-bold text-lavender-400">
-            Same Moment 🕐
-          </div>
-          <div className="absolute bottom-3 left-3 text-xs text-gray-400">
-            📍 Partner 1
-          </div>
-          <div className="absolute bottom-3 right-3 text-xs text-gray-400">
-            📍 Partner 2
-          </div>
+          <div className="absolute inset-2 border-2 border-lavender-300/30 rounded-xl" />
         </div>
       );
     default:
