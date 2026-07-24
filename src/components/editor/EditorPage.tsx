@@ -493,6 +493,84 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+const FRAME_GRADIENT_COLORS: Record<FrameType, [string, string]> = {
+  polaroid: ["#f9fafb", "#f3f4f6"],
+  "photobooth-strip": ["#fff1f2", "#ffe4e6"],
+  scrapbook: ["#fffbeb", "#fef3c7"],
+  "pink-heart": ["#fce7f3", "#ffe4e6"],
+  "miles-apart": ["#eff6ff", "#ecfeff"],
+  "cloud-stars": ["#eff6ff", "#e0e7ff"],
+  "bear-bunny": ["#fef3c7", "#ffedd5"],
+  "love-letter": ["#fef2f2", "#fce7f3"],
+  "same-moment": ["#faf5ff", "#f3e8ff"],
+};
+
+const FRAME_DECORATIONS: Record<FrameType, { emojis: { text: string; x: number; y: number; size: number }[]; border?: string; label?: string; labelY?: number }> = {
+  "pink-heart": {
+    emojis: [
+      { text: "💕", x: 0.92, y: 0.08, size: 28 },
+      { text: "💗", x: 0.08, y: 0.92, size: 28 },
+      { text: "✨", x: 0.08, y: 0.08, size: 20 },
+      { text: "🎀", x: 0.92, y: 0.92, size: 20 },
+    ],
+    border: "2px solid rgba(236, 72, 153, 0.35)",
+  },
+  scrapbook: {
+    emojis: [
+      { text: "🌸", x: 0.9, y: 0.06, size: 18 },
+      { text: "🌼", x: 0.08, y: 0.9, size: 18 },
+    ],
+  },
+  "miles-apart": {
+    emojis: [
+      { text: "🌍", x: 0.08, y: 0.92, size: 20 },
+      { text: "💕", x: 0.92, y: 0.92, size: 20 },
+    ],
+    border: "2px dashed rgba(96, 165, 250, 0.4)",
+    label: "Miles Apart, Together at Heart 💕",
+    labelY: 0.06,
+  },
+  "cloud-stars": {
+    emojis: [
+      { text: "☁️", x: 0.88, y: 0.06, size: 22 },
+      { text: "⭐", x: 0.1, y: 0.08, size: 20 },
+      { text: "✨", x: 0.5, y: 0.04, size: 16 },
+      { text: "🌙", x: 0.5, y: 0.94, size: 22 },
+    ],
+  },
+  "bear-bunny": {
+    emojis: [
+      { text: "🐻", x: 0.06, y: 0.06, size: 26 },
+      { text: "🐰", x: 0.94, y: 0.06, size: 26 },
+      { text: "💕", x: 0.5, y: 0.94, size: 16 },
+    ],
+  },
+  "love-letter": {
+    emojis: [
+      { text: "💌", x: 0.9, y: 0.06, size: 20 },
+      { text: "💝", x: 0.1, y: 0.06, size: 20 },
+    ],
+    border: "2px solid rgba(252, 165, 165, 0.4)",
+    label: "With all my love",
+    labelY: 0.93,
+  },
+  polaroid: {
+    emojis: [],
+    border: "1px solid rgba(255,255,255,0.5)",
+  },
+  "photobooth-strip": {
+    emojis: [
+      { text: "📸", x: 0.88, y: 0.06, size: 16 },
+    ],
+  },
+  "same-moment": {
+    emojis: [],
+    border: "2px solid rgba(196, 181, 253, 0.4)",
+    label: "Same Moment 🕐",
+    labelY: 0.06,
+  },
+};
+
 async function composeCoupleFrame(
   localPhoto: string,
   partnerPhoto: string | null,
@@ -504,60 +582,184 @@ async function composeCoupleFrame(
   const localImg = await loadImage(localPhoto);
   const partnerImg = partnerPhoto ? await loadImage(partnerPhoto) : null;
 
-  const W = partnerImg ? 800 : localImg.width;
-  const H = partnerImg ? Math.max(localImg.height, partnerImg.height) : localImg.height;
+  const PAD = 40;
+  const GAP = 16;
+  const CORNER_R = 20;
+
+  let W: number, H: number;
+  let photoW: number, photoH: number;
+
+  if (partnerImg) {
+    W = 800;
+    H = 600;
+    photoW = (W - PAD * 2 - GAP) / 2;
+    photoH = H - PAD * 2;
+  } else {
+    const maxDim = 800;
+    const scale = maxDim / Math.max(localImg.width, localImg.height);
+    W = Math.round(localImg.width * scale);
+    H = Math.round(localImg.height * scale);
+    photoW = W - PAD * 2;
+    photoH = H - PAD * 2;
+  }
+
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) return localPhoto;
 
-  if (filter) ctx.filter = filter;
+  const [c1, c2] = FRAME_GRADIENT_COLORS[frame] || ["#fff", "#f9fafb"];
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, c1);
+  grad.addColorStop(1, c2);
+  ctx.fillStyle = grad;
+  roundRect(ctx, 0, 0, W, H, CORNER_R);
+  ctx.fill();
 
-  if (partnerImg) {
-    const halfW = W / 2;
-    const drawW = halfW - 10;
-    const drawH = H - 20;
+  const decor = FRAME_DECORATIONS[frame];
 
-    const localRatio = localImg.width / localImg.height;
-    const partnerRatio = partnerImg.width / partnerImg.height;
-    const slotRatio = drawW / drawH;
-
-    let lsx = 0, lsy = 0, lsw = localImg.width, lsh = localImg.height;
-    if (localRatio > slotRatio) { lsw = localImg.height * slotRatio; lsx = (localImg.width - lsw) / 2; }
-    else { lsh = localImg.width / slotRatio; lsy = (localImg.height - lsh) / 2; }
-
-    let psx = 0, psy = 0, psw = partnerImg.width, psh = partnerImg.height;
-    if (partnerRatio > slotRatio) { psw = partnerImg.height * slotRatio; psx = (partnerImg.width - psw) / 2; }
-    else { psh = partnerImg.width / slotRatio; psy = (partnerImg.height - psh) / 2; }
-
-    ctx.drawImage(localImg, lsx, lsy, lsw, lsh, 5, 10, drawW, drawH);
-    ctx.drawImage(partnerImg, psx, psy, psw, psh, halfW + 5, 10, drawW, drawH);
-  } else {
-    ctx.drawImage(localImg, 0, 0);
+  function drawPhoto(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
+    ctx!.save();
+    roundRect(ctx!, x, y, w, h, 12);
+    ctx!.clip();
+    const imgRatio = img.width / img.height;
+    const slotRatio = w / h;
+    let sx = 0, sy = 0, sw = img.width, sh = img.height;
+    if (imgRatio > slotRatio) { sw = img.height * slotRatio; sx = (img.width - sw) / 2; }
+    else { sh = img.width / slotRatio; sy = (img.height - sh) / 2; }
+    ctx!.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+    ctx!.restore();
   }
 
-  ctx.filter = "none";
+  if (partnerImg) {
+    const x1 = PAD;
+    const x2 = PAD + photoW + GAP;
+    const y = PAD;
+    drawPhoto(localImg, x1, y, photoW, photoH);
+    drawPhoto(partnerImg, x2, y, photoW, photoH);
+
+    if (frame === "polaroid") {
+      ctx.save();
+      const px = x1 + photoW / 2;
+      const py = y + photoH + 24;
+      ctx.font = "11px serif";
+      ctx.fillStyle = "#9ca3af";
+      ctx.textAlign = "center";
+      ctx.fillText("You", px, py);
+      ctx.fillText("Partner", x2 + photoW / 2, py);
+      ctx.restore();
+    }
+  } else {
+    drawPhoto(localImg, PAD, PAD, photoW, photoH);
+  }
+
+  if (filter) {
+    ctx.save();
+    ctx.filter = filter;
+    if (partnerImg) {
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.fillStyle = "rgba(0,0,0,0)";
+      ctx.fillRect(0, 0, W, H);
+    }
+    ctx.restore();
+  }
+
+  if (decor.border) {
+    ctx.save();
+    ctx.strokeStyle = decor.border;
+    ctx.lineWidth = 2;
+    if (partnerImg) {
+      roundRect(ctx, PAD - 4, PAD - 4, photoW + 8, photoH + 8, 14);
+      ctx.stroke();
+      roundRect(ctx, PAD + photoW + GAP - 4, PAD - 4, photoW + 8, photoH + 8, 14);
+      ctx.stroke();
+    } else {
+      roundRect(ctx, PAD - 4, PAD - 4, photoW + 8, photoH + 8, 14);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  if (decor.label && decor.labelY !== undefined) {
+    ctx.save();
+    const labelY = H * decor.labelY;
+    ctx.font = "bold 13px Inter, sans-serif";
+    ctx.textAlign = "center";
+    if (frame === "love-letter") {
+      ctx.fillStyle = "#f87171";
+      ctx.font = "italic 13px Caveat, cursive";
+    } else if (frame === "miles-apart") {
+      const tw = ctx.measureText(decor.label).width;
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      roundRect(ctx, W / 2 - tw / 2 - 12, labelY - 12, tw + 24, 24, 12);
+      ctx.fill();
+      ctx.fillStyle = "#60a5fa";
+    } else {
+      ctx.fillStyle = "#a78bfa";
+      const tw = ctx.measureText(decor.label).width;
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      roundRect(ctx, W / 2 - tw / 2 - 12, labelY - 12, tw + 24, 24, 12);
+      ctx.fill();
+      ctx.fillStyle = "#a78bfa";
+    }
+    ctx.fillText(decor.label, W / 2, labelY + 4);
+    ctx.restore();
+  }
+
+  for (const e of decor.emojis) {
+    ctx.save();
+    ctx.font = `${e.size}px serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(e.text, e.x * W, e.y * H);
+    ctx.restore();
+  }
 
   if (text) {
-    const fontSize = Math.floor(W * 0.04);
+    ctx.save();
+    const fontSize = Math.max(20, Math.floor(W * 0.04));
     ctx.font = `bold ${fontSize}px Caveat, cursive`;
     ctx.fillStyle = "white";
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 8;
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 10;
     ctx.textAlign = "center";
-    ctx.fillText(text, W / 2, H * 0.92);
-    ctx.shadowBlur = 0;
+    ctx.fillText(text, W / 2, H - 30);
+    ctx.restore();
   }
 
   stickers.forEach((s) => {
-    const fontSize = Math.floor(W * 0.05);
+    ctx.save();
+    const fontSize = Math.max(20, Math.floor(W * 0.05));
     ctx.font = `${fontSize}px serif`;
     ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
     ctx.fillText(s.emoji, (s.x / 100) * W, (s.y / 100) * H);
+    ctx.restore();
   });
 
   return canvas.toDataURL("image/png");
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 function CoupleFramePreview({
