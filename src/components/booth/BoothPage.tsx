@@ -356,32 +356,37 @@ export default function BoothPage() {
                 </div>
               )}
               {cameraError && !isCamOff && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-pink-50/50">
-                  <Camera className="w-10 h-10 mb-2 opacity-50" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-gradient-to-br from-pink-50 to-rose-50 p-6">
+                  <div className="w-16 h-16 rounded-full bg-pink-100 flex items-center justify-center mb-3">
+                    <Camera className="w-8 h-8 text-pink-400" />
+                  </div>
                   <button
                     onClick={startCamera}
-                    className="px-4 py-2 rounded-full bg-pink-400 text-white text-sm font-bold shadow-lg hover:bg-pink-500 active:scale-95 transition-all"
+                    className="px-8 py-4 rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-lg font-bold shadow-xl hover:shadow-2xl active:scale-95 transition-all"
                   >
-                    Try Again
+                    Tap to Enable Camera
                   </button>
-                  <p className="text-xs text-pink-400 mt-3 text-center px-6 leading-relaxed max-w-[250px]">{cameraError}</p>
+                  <p className="text-xs text-pink-400 mt-4 text-center leading-relaxed">{cameraError}</p>
                   <button
                     onClick={() => window.location.reload()}
-                    className="mt-2 text-[11px] text-pink-300 underline hover:text-pink-400"
+                    className="mt-3 px-4 py-1.5 rounded-full bg-pink-100 text-pink-500 text-xs font-bold hover:bg-pink-200 transition-colors"
                   >
-                    Reload page
+                    Reload Page
                   </button>
                 </div>
               )}
               {!isActive && !cameraError && !isCamOff && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-pink-50/80 to-rose-50/80">
+                  <div className="w-20 h-20 rounded-full bg-white/80 flex items-center justify-center mb-4 shadow-lg animate-pulse-soft">
+                    <Camera className="w-10 h-10 text-pink-400" />
+                  </div>
                   <button
                     onClick={startCamera}
-                    className="px-6 py-3 rounded-full bg-gradient-to-br from-pink-400 to-rose-400 text-white font-bold shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all"
+                    className="px-10 py-5 rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-xl font-bold shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all"
                   >
-                    <Camera className="w-5 h-5 inline mr-2" />
-                    Turn on Camera
+                    📸 Tap to Start Camera
                   </button>
+                  <p className="text-sm text-pink-300 mt-3">Tap the button above to allow camera access</p>
                 </div>
               )}
               <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/80 backdrop-blur text-xs font-bold text-pink-500">
