@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { useApp } from "@/lib/store";
+import type { SharedState } from "@/lib/types";
 import FloatingElements from "@/components/ui/FloatingElements";
 import { useWebRTC } from "@/hooks/useWebRTC";
 
@@ -52,57 +53,46 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   const localImg = await loadImage(localPhoto);
   const partnerImg = await loadImage(partnerPhoto);
 
-  const W = 900;
-  const H = 600;
+  const W = 372;
+  const H = 250;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) return localPhoto;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, W, H);
+  const halfW = W / 2;
 
-  const PAD = 30;
-  const GAP = 16;
-  const TEXT_AREA = 50;
-  const photoW = (W - PAD * 2 - GAP) / 2;
-  const photoH = H - PAD * 2 - TEXT_AREA;
-
-  function drawPhoto(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
+  function drawHalf(img: HTMLImageElement, x: number, w: number) {
     if (!ctx) return;
     const imgRatio = img.width / img.height;
-    const slotRatio = w / h;
+    const slotRatio = w / H;
     let drawW: number, drawH: number, drawX: number, drawY: number;
     if (imgRatio > slotRatio) {
       drawW = w;
       drawH = w / imgRatio;
       drawX = x;
-      drawY = y + (h - drawH) / 2;
+      drawY = (H - drawH) / 2;
     } else {
-      drawH = h;
-      drawW = h * imgRatio;
+      drawH = H;
+      drawW = H * imgRatio;
       drawX = x + (w - drawW) / 2;
-      drawY = y;
+      drawY = 0;
     }
     ctx.save();
-    roundRect(ctx, x, y, w, h, 12);
+    ctx.beginPath();
+    ctx.rect(x, 0, w, H);
     ctx.clip();
     ctx.fillStyle = "#f0f0f0";
-    ctx.fillRect(x, y, w, h);
+    ctx.fillRect(x, 0, w, H);
     ctx.filter = "grayscale(1)";
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.filter = "none";
     ctx.restore();
   }
 
-  drawPhoto(localImg, PAD, PAD, photoW, photoH);
-  drawPhoto(partnerImg, PAD + photoW + GAP, PAD, photoW, photoH);
-
-  ctx.fillStyle = "#bbbbbb";
-  ctx.font = "13px Georgia, serif";
-  ctx.textAlign = "center";
-  ctx.fillText("TogetherFrame", W / 2, H - 18);
+  drawHalf(localImg, 0, halfW);
+  drawHalf(partnerImg, halfW, halfW);
 
   return canvas.toDataURL("image/png");
 }
@@ -110,14 +100,14 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
 async function composeStrip(frames: string[]): Promise<string> {
   const images = await Promise.all(frames.map((f) => loadImage(f)));
 
-  const STRIP_W = 900;
-  const STRIP_H = 3300;
+  const STRIP_W = 420;
   const PAD = 24;
-  const GAP = 14;
-  const TEXT_AREA = 60;
-  const SLOT_H = (STRIP_H - PAD * 2 - GAP * 3 - TEXT_AREA) / 4;
+  const GAP = 16;
   const SLOT_W = STRIP_W - PAD * 2;
-  const SLOT_R = 18;
+  const SLOT_H = 250;
+  const SLOT_R = 8;
+  const TEXT_AREA = 40;
+  const STRIP_H = PAD + SLOT_H * 4 + GAP * 3 + TEXT_AREA;
 
   const canvas = document.createElement("canvas");
   canvas.width = STRIP_W;
@@ -160,9 +150,9 @@ async function composeStrip(frames: string[]): Promise<string> {
   }
 
   ctx.fillStyle = "#bbbbbb";
-  ctx.font = "15px Georgia, serif";
+  ctx.font = "13px Georgia, serif";
   ctx.textAlign = "center";
-  ctx.fillText("TogetherFrame", STRIP_W / 2, STRIP_H - 20);
+  ctx.fillText("TogetherFrame", STRIP_W / 2, STRIP_H - 14);
 
   return canvas.toDataURL("image/png");
 }
@@ -200,9 +190,10 @@ export default function BoothPage() {
   const partnerFrameRef = useRef<string | null>(null);
   const frameComposedRef = useRef(false);
   const sequenceActiveRef = useRef(false);
+  const isInitiatorRef = useRef(false);
   const nextFrameTimerRef = useRef<NodeJS.Timeout | null>(null);
   const processFrameRef = useRef<(local: string, partner: string) => void>(() => {});
-  const startNextFrameRef = useRef<() => void>(() => {});
+  const startNextFrameRef = useRef<() => number | undefined>(() => undefined);
   const sendPhotoRef = useRef<(photoDataUrl: string) => void>(() => {});
 
   const triggerFlash = useCallback(() => {
@@ -261,6 +252,10 @@ export default function BoothPage() {
   }, []);
 
   const handleCaptureStartStable = useCallback((captureStartTime: number) => {
+    localFrameRef.current = null;
+    partnerFrameRef.current = null;
+    frameComposedRef.current = false;
+
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     countdownIntervalRef.current = setInterval(() => {
       const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
@@ -298,6 +293,18 @@ export default function BoothPage() {
     handleRetakeReceived();
   }, [handleRetakeReceived]);
 
+  const handleSharedStateUpdate = useCallback((updates: Partial<SharedState>) => {
+    if (updates.view === "result" && updates.resultImage) {
+      setResultImage(updates.resultImage);
+      setView("result");
+      setIsComposing(false);
+    }
+    if (updates.view === "camera") {
+      setView("camera");
+      setResultImage("");
+    }
+  }, []);
+
   const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, sendFlash, sendNewSession, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
     userName,
@@ -307,6 +314,7 @@ export default function BoothPage() {
     onCaptureStartReceived: handleCaptureStartStable,
     onFlashReceived: handleFlashReceived,
     onNewSessionReceived: handleNewSessionReceived,
+    onSharedStateUpdate: handleSharedStateUpdate,
   });
 
   useEffect(() => {
@@ -336,22 +344,22 @@ export default function BoothPage() {
       finishSequence();
     } else {
       nextFrameTimerRef.current = setTimeout(() => {
-        if (sequenceActiveRef.current) {
-          startNextFrameRef.current();
+        if (sequenceActiveRef.current && isInitiatorRef.current) {
+          const captureStartTime = startNextFrameRef.current();
+          if (captureStartTime) sendCaptureStart(captureStartTime);
         }
       }, 1200);
     }
-  }, [finishSequence]);
+  }, [finishSequence, sendCaptureStart]);
 
   const startNextFrame = useCallback(() => {
-    if (!sequenceActiveRef.current) return;
+    if (!sequenceActiveRef.current) return undefined;
 
     localFrameRef.current = null;
     partnerFrameRef.current = null;
     frameComposedRef.current = false;
 
     const captureStartTime = Date.now() + 3000;
-    sendCaptureStart(captureStartTime);
 
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     countdownIntervalRef.current = setInterval(() => {
@@ -376,7 +384,9 @@ export default function BoothPage() {
         }
       }
     }, 50);
-  }, [sendCaptureStart, sendPhoto, capturePhoto, triggerFlash]);
+
+    return captureStartTime;
+  }, [capturePhoto, triggerFlash, sendPhoto]);
 
   useEffect(() => {
     processFrameRef.current = processFrame;
@@ -425,6 +435,7 @@ export default function BoothPage() {
   const startCapture = () => {
     resetPhotoState();
     sequenceActiveRef.current = true;
+    isInitiatorRef.current = true;
     addTimelineActivity({
       id: `cap-${Date.now()}`,
       type: "photo_captured",
@@ -432,7 +443,8 @@ export default function BoothPage() {
       timestamp: new Date().toISOString(),
       user: userName,
     });
-    startNextFrame();
+    const captureStartTime = startNextFrame();
+    if (captureStartTime) sendCaptureStart(captureStartTime);
   };
 
   const handleDownload = () => {
@@ -832,7 +844,7 @@ export default function BoothPage() {
                   src={resultImage}
                   alt="TogetherFrame Strip"
                   className="w-full rounded-2xl"
-                  style={{ aspectRatio: "900/3300", objectFit: "contain" }}
+                  style={{ aspectRatio: "420/1112", objectFit: "contain" }}
                 />
               ) : null}
             </div>
