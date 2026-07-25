@@ -88,10 +88,21 @@ async function composeFinalImage(localPhotos: string[], partnerPhotos: string[],
     ctx.clip();
     const imgRatio = img.width / img.height;
     const slotRatio = w / h;
-    let sx = 0, sy = 0, sw = img.width, sh = img.height;
-    if (imgRatio > slotRatio) { sw = img.height * slotRatio; sx = (img.width - sw) / 2; }
-    else { sh = img.width / slotRatio; sy = (img.height - sh) / 2; }
-    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+    let drawW: number, drawH: number, drawX: number, drawY: number;
+    if (imgRatio > slotRatio) {
+      drawW = w;
+      drawH = w / imgRatio;
+      drawX = x;
+      drawY = y + (h - drawH) / 2;
+    } else {
+      drawH = h;
+      drawW = h * imgRatio;
+      drawX = x + (w - drawW) / 2;
+      drawY = y;
+    }
+    ctx.fillStyle = "#f9fafb";
+    ctx.fillRect(x, y, w, h);
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.restore();
   }
 
@@ -179,6 +190,8 @@ export default function BoothPage() {
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [waitingForPartner, setWaitingForPartner] = useState(false);
   const waitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const partnerPhotosRef = useRef<string[]>([]);
+  const composedRef = useRef(false);
 
   const resetPhotoState = useCallback(() => {
     setCapturedPhotos([]);
@@ -187,7 +200,7 @@ export default function BoothPage() {
     setSaved(false);
     setResultImage("");
     setView("camera");
-    sessionStorage.removeItem("partnerPhotos");
+    composedRef.current = false;
     if (waitTimeoutRef.current) {
       clearTimeout(waitTimeoutRef.current);
       waitTimeoutRef.current = null;
@@ -198,19 +211,16 @@ export default function BoothPage() {
     resetPhotoState();
   }, [resetPhotoState]);
 
-  const handleSharedStateUpdate = useCallback((updates: Record<string, unknown>) => {
-    if (updates.partnerPhotos) {
-      sessionStorage.setItem("partnerPhotos", JSON.stringify(updates.partnerPhotos));
-    }
-  }, []);
-
-  const { remoteStream, connected, peerCount, sendPhotos, sendRetake, sharedState, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
+  const { remoteStream, connected, peerCount, sendRetake, sharedState, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
     onRetakeReceived: handleRetakeReceived,
-    onSharedStateUpdate: handleSharedStateUpdate,
   });
+
+  useEffect(() => {
+    partnerPhotosRef.current = sharedState.partnerPhotos;
+  }, [sharedState.partnerPhotos]);
 
   const startCamera = useCallback(async () => {
     try {
@@ -271,42 +281,17 @@ export default function BoothPage() {
   const capturePhoto = (): string | null => {
     const video = videoRef.current;
     if (!video) return null;
-    const remoteVideo = remoteVideoRef.current;
-    const hasRemote = !!(remoteVideo && remoteVideo.srcObject && remoteVideo.readyState >= 2);
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
 
-    const SLOT_W = 640;
-    const SLOT_H = 480;
     const canvas = document.createElement("canvas");
-    canvas.width = hasRemote ? SLOT_W * 2 : SLOT_W;
-    canvas.height = SLOT_H;
+    canvas.width = vw;
+    canvas.height = vh;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    function drawCover(v: HTMLVideoElement, x: number, y: number, w: number, h: number) {
-      if (!ctx) return;
-      const vw = v.videoWidth;
-      const vh = v.videoHeight;
-      if (!vw || !vh) return;
-      const vRatio = vw / vh;
-      const sRatio = w / h;
-      let sx = 0, sy = 0, sw = vw, sh = vh;
-      if (vRatio > sRatio) {
-        sw = vh * sRatio;
-        sx = (vw - sw) / 2;
-      } else {
-        sh = vw / sRatio;
-        sy = (vh - sh) / 2;
-      }
-      ctx.drawImage(v, sx, sy, sw, sh, x, y, w, h);
-    }
-
-    if (hasRemote) {
-      const halfW = canvas.width / 2;
-      drawCover(video, 0, 0, halfW, canvas.height);
-      drawCover(remoteVideo, halfW, 0, halfW, canvas.height);
-    } else {
-      drawCover(video, 0, 0, SLOT_W, SLOT_H);
-    }
+    ctx.drawImage(video, 0, 0, vw, vh);
     return canvas.toDataURL("image/png");
   };
 
@@ -354,9 +339,9 @@ export default function BoothPage() {
 
   const showResult = useCallback(async (photos: string[]) => {
     setIsComposing(true);
+    composedRef.current = true;
     try {
-      const partnerJson = sessionStorage.getItem("partnerPhotos");
-      const partnerPhotosArr: string[] = partnerJson ? JSON.parse(partnerJson) : [];
+      const partnerPhotosArr = partnerPhotosRef.current;
       const finalImg = await composeFinalImage(photos, partnerPhotosArr, selectedFrame);
       setResultImage(finalImg);
       setView("result");
@@ -371,7 +356,7 @@ export default function BoothPage() {
   }, [selectedFrame, updateSharedState]);
 
   const startCountdown = async () => {
-    sessionStorage.removeItem("partnerPhotos");
+    composedRef.current = false;
     setCapturedPhotos([]);
     setWaitingForPartner(false);
     setSaved(false);
@@ -388,28 +373,23 @@ export default function BoothPage() {
     if (photos.length === 0) return;
 
     if (connected) {
-      sendPhotos(photos);
       setWaitingForPartner(true);
       waitTimeoutRef.current = setTimeout(() => {
         setWaitingForPartner(false);
-        showResult(photos);
+        showResult(capturedPhotosRef.current);
       }, 15000);
     } else {
       showResult(photos);
     }
   };
 
-  const handlePartnerArrived = useCallback(() => {
-    if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
-    setWaitingForPartner(false);
-    showResult(capturedPhotosRef.current);
-  }, [showResult]);
-
   useEffect(() => {
-    if (waitingForPartner && connected && capturedPhotosRef.current.length > 0) {
-      handlePartnerArrived();
+    if (waitingForPartner && sharedState.partnerPhotos.length > 0 && capturedPhotosRef.current.length > 0 && !composedRef.current) {
+      if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
+      setWaitingForPartner(false);
+      showResult(capturedPhotosRef.current);
     }
-  }, [waitingForPartner, connected, handlePartnerArrived]);
+  }, [waitingForPartner, sharedState.partnerPhotos, showResult]);
 
   const handleDownload = () => {
     if (!resultImage) return;
@@ -568,7 +548,7 @@ export default function BoothPage() {
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                   style={{ transform: "scaleX(-1)" }}
                 />
                 {isCamOff && (
@@ -630,7 +610,7 @@ export default function BoothPage() {
                     ref={remoteVideoCallback}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 ) : connected ? (
                   <div className="text-center">

@@ -266,12 +266,20 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
       if (msg.type === "state_sync") {
         const incoming = msg.state as Partial<SharedState>;
+        if (incoming.photos && incoming.photos.length > 0) {
+          incoming.partnerPhotos = incoming.photos;
+          incoming.photos = [];
+        }
         setSharedState(prev => ({ ...prev, ...incoming }));
         onSharedStateUpdateRef.current?.(incoming);
       }
 
       if (msg.type === "state_update" && msg.peerId !== peerIdRef.current) {
         const updates = msg.updates as Partial<SharedState>;
+        if (updates.photos) {
+          updates.partnerPhotos = updates.photos;
+          delete updates.photos;
+        }
         setSharedState(prev => ({ ...prev, ...updates }));
         onSharedStateUpdateRef.current?.(updates);
       }
