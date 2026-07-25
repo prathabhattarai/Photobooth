@@ -490,21 +490,15 @@ export default function BoothPage() {
         <div className={view === "camera" ? "" : "hidden"}>
           {/* Fixed Shared Photobooth Frame */}
           <div className="flex justify-center mb-6">
-            <div
-              className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[380px]"
-              style={{ aspectRatio: "3/4" }}
-            >
+            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[380px] flex flex-col gap-2">
               {/* Local Video Slot */}
-              <div
-                className="relative bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden mb-2"
-                style={{ aspectRatio: "18/11" }}
-              >
+              <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden">
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-contain"
+                  className="absolute inset-0 w-full h-full object-cover"
                   style={{ transform: "scaleX(-1)" }}
                 />
                 {isCamOff && (
@@ -548,21 +542,18 @@ export default function BoothPage() {
               </div>
 
               {/* Partner Video Slot */}
-              <div
-                className="relative bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden"
-                style={{ aspectRatio: "18/11" }}
-              >
+              <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden">
                 {remoteStream ? (
                   <video
                     ref={remoteVideoCallback}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-contain"
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
                 ) : connected ? (
-                  <div className="text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
                     {partnerAvatar ? (
-                      <div className="w-14 h-14 rounded-full overflow-hidden border-3 border-white/60 mx-auto mb-1 animate-float">
+                      <div className="w-14 h-14 rounded-full overflow-hidden border-3 border-white/60 mb-1 animate-float">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={partnerAvatar}
@@ -581,7 +572,7 @@ export default function BoothPage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <div className="text-3xl mb-1 animate-pulse-soft">💌</div>
                     <p className="text-lavender-400 font-bold text-xs">
                       Waiting for partner...
@@ -600,7 +591,7 @@ export default function BoothPage() {
               </div>
 
               {/* Bottom Text */}
-              <div className="text-center mt-auto pt-2">
+              <div className="text-center pt-1">
                 <p className="text-[11px] text-gray-300 font-serif tracking-wide">
                   TogetherFrame
                 </p>
