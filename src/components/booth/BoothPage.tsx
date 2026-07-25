@@ -17,6 +17,7 @@ import {
   RotateCcw,
   LogOut,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 
 import { useApp } from "@/lib/store";
@@ -89,7 +90,9 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
     ctx.clip();
     ctx.fillStyle = "#f0f0f0";
     ctx.fillRect(x, y, w, h);
+    ctx.filter = "grayscale(1)";
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.filter = "none";
     ctx.restore();
   }
 
@@ -146,7 +149,9 @@ async function composeStrip(frames: string[]): Promise<string> {
     ctx.clip();
     ctx.fillStyle = "#f0f0f0";
     ctx.fillRect(PAD, y, SLOT_W, SLOT_H);
+    ctx.filter = "grayscale(1)";
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.filter = "none";
     ctx.restore();
   }
 
@@ -170,7 +175,6 @@ export default function BoothPage() {
   const router = useRouter();
   const { user, partnerAvatar, currentRoomCode, saveMemoryToAPI } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -199,6 +203,29 @@ export default function BoothPage() {
   const nextFrameTimerRef = useRef<NodeJS.Timeout | null>(null);
   const processFrameRef = useRef<(local: string, partner: string) => void>(() => {});
   const startNextFrameRef = useRef<() => void>(() => {});
+  const sendPhotoRef = useRef<(photoDataUrl: string) => void>(() => {});
+
+  const triggerFlash = useCallback(() => {
+    setFlashVisible(true);
+    setTimeout(() => setFlashVisible(false), 300);
+  }, []);
+
+  const capturePhoto = useCallback((): string | null => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.filter = "grayscale(1)";
+    ctx.drawImage(video, 0, 0, vw, vh);
+    ctx.filter = "none";
+    return canvas.toDataURL("image/png");
+  }, []);
 
   const resetPhotoState = useCallback(() => {
     sequenceActiveRef.current = false;
@@ -233,36 +260,58 @@ export default function BoothPage() {
     }
   }, []);
 
-  const handleCaptureStartStable = useCallback((_captureStartTime: number) => {
-  }, []);
+  const handleCaptureStartStable = useCallback((captureStartTime: number) => {
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    countdownIntervalRef.current = setInterval(() => {
+      const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
+      if (remaining > 0) {
+        setCountdown(remaining);
+      } else {
+        setCountdown(null);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+
+        const photo = capturePhoto();
+        if (photo) {
+          localFrameRef.current = photo;
+          triggerFlash();
+          sendPhotoRef.current(photo);
+
+          if (partnerFrameRef.current && !frameComposedRef.current) {
+            frameComposedRef.current = true;
+            processFrameRef.current(photo, partnerFrameRef.current);
+          }
+        }
+      }
+    }, 50);
+  }, [capturePhoto, triggerFlash]);
+
+  const handleFlashReceived = useCallback(() => {
+    triggerFlash();
+  }, [triggerFlash]);
+
+  const handleNewSessionReceived = useCallback(() => {
+    resetPhotoState();
+  }, [resetPhotoState]);
 
   const handleRetakeReceivedStable = useCallback(() => {
     handleRetakeReceived();
   }, [handleRetakeReceived]);
 
-  const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
+  const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, sendFlash, sendNewSession, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
     onPhotoReceived: handlePhotoReceivedStable,
     onRetakeReceived: handleRetakeReceivedStable,
     onCaptureStartReceived: handleCaptureStartStable,
+    onFlashReceived: handleFlashReceived,
+    onNewSessionReceived: handleNewSessionReceived,
   });
 
-  const capturePhoto = (): string | null => {
-    const video = videoRef.current;
-    if (!video) return null;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    if (!vw || !vh) return null;
-    const canvas = document.createElement("canvas");
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, vw, vh);
-    return canvas.toDataURL("image/png");
-  };
+  useEffect(() => {
+    sendPhotoRef.current = sendPhoto;
+  }, [sendPhoto]);
 
   const finishSequence = useCallback(() => {
     sequenceActiveRef.current = false;
@@ -317,8 +366,7 @@ export default function BoothPage() {
         const photo = capturePhoto();
         if (photo) {
           localFrameRef.current = photo;
-          setFlashVisible(true);
-          setTimeout(() => setFlashVisible(false), 300);
+          triggerFlash();
           sendPhoto(photo);
 
           if (partnerFrameRef.current && !frameComposedRef.current) {
@@ -328,7 +376,7 @@ export default function BoothPage() {
         }
       }
     }, 50);
-  }, [sendCaptureStart, sendPhoto]);
+  }, [sendCaptureStart, sendPhoto, capturePhoto, triggerFlash]);
 
   useEffect(() => {
     processFrameRef.current = processFrame;
@@ -448,6 +496,7 @@ export default function BoothPage() {
       user: userName,
     });
     stream?.getTracks().forEach((t) => t.stop());
+    if (connected) sendNewSession();
     router.push("/room");
   };
 
@@ -527,6 +576,24 @@ export default function BoothPage() {
             </Link>
           </div>
         </motion.div>
+
+        {/* Partner Disconnected Banner */}
+        <AnimatePresence>
+          {peerCount > 0 && !connected && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4"
+            >
+              <div className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200/50 text-amber-600 text-sm font-medium">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Partner disconnected. Attempting to reconnect...</span>
+                <span className="w-4 h-4 border-2 border-amber-300 border-t-amber-500 rounded-full animate-spin" />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ========== CAMERA VIEW ========== */}
         <div className={view === "camera" ? "" : "hidden"}>
