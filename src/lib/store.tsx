@@ -141,7 +141,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setMemories((prev) => [newMem, ...prev]);
     } catch {
-      // fallback: add locally
       const local: Memory = {
         id: `local-${Date.now()}`,
         roomId: roomCode,

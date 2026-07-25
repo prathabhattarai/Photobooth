@@ -40,12 +40,6 @@ export default function RoomPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const saveGuestUser = (avatar: string, guestName: string) => {
-    const guest = { id: `guest-${Date.now()}`, name: guestName, email: "", avatar };
-    setUser(guest);
-    if (typeof window !== "undefined") localStorage.setItem("tf_user", JSON.stringify(guest));
-  };
-
   const savePartnerAvatar = () => {
     if (partnerAvatarInput) setPartnerAvatar(partnerAvatarInput);
   };
@@ -60,17 +54,9 @@ export default function RoomPage() {
       setGeneratedCode(data.room_code);
       setCurrentRoomCode(data.room_code);
       savePartnerAvatar();
-      if (avatarUrl && !api.isLoggedIn()) saveGuestUser(avatarUrl, name);
       setStep("created");
-    } catch {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      let code = "";
-      for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-      setGeneratedCode(code);
-      setCurrentRoomCode(code);
-      savePartnerAvatar();
-      if (avatarUrl && !api.isLoggedIn()) saveGuestUser(avatarUrl, name);
-      setStep("created");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not create room. Is the server running?");
     } finally {
       setLoading(false);
     }
@@ -81,18 +67,17 @@ export default function RoomPage() {
     setLoading(true);
     setError("");
     const avatarUrl = selectedAvatar || "";
+    let joinFailed = false;
     try {
       const data = await api.joinRoom(roomCode, name, avatarUrl);
       setCurrentRoomCode(data.room_code || roomCode.toUpperCase());
       savePartnerAvatar();
-      if (avatarUrl && !api.isLoggedIn()) saveGuestUser(avatarUrl, name);
-    } catch {
-      setCurrentRoomCode(roomCode.toUpperCase());
-      savePartnerAvatar();
-      if (avatarUrl && !api.isLoggedIn()) saveGuestUser(avatarUrl, name);
+    } catch (err: unknown) {
+      joinFailed = true;
+      setError(err instanceof Error ? err.message : "Could not join room. Check the code and try again.");
     } finally {
       setLoading(false);
-      router.push("/booth");
+      if (!joinFailed) router.push("/booth");
     }
   };
 
