@@ -21,9 +21,10 @@ interface UseWebRTCProps {
   localStream: MediaStream | null;
   onPhotoReceived?: (photoDataUrl: string) => void;
   onPhotosReceived?: (photos: string[]) => void;
+  onRetakeReceived?: () => void;
 }
 
-export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived }: UseWebRTCProps) {
+export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived, onRetakeReceived }: UseWebRTCProps) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connected, setConnected] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
@@ -47,6 +48,9 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const onPhotosReceivedRef = useRef(onPhotosReceived);
   onPhotosReceivedRef.current = onPhotosReceived;
+
+  const onRetakeReceivedRef = useRef(onRetakeReceived);
+  onRetakeReceivedRef.current = onRetakeReceived;
 
   const destroyPC = useCallback(() => {
     if (pcRef.current) {
@@ -76,6 +80,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const sendPhotos = useCallback((photos: string[]) => {
     sendWs({ type: "photos_captured", photos, peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const sendRetake = useCallback(() => {
+    sendWs({ type: "retake", peerId: peerIdRef.current });
   }, [sendWs]);
 
   const createAndSendOffer = useCallback(async (pc: RTCPeerConnection) => {
@@ -292,6 +300,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
       if (msg.type === "photos_captured" && msg.peerId !== peerIdRef.current) {
         onPhotosReceivedRef.current?.(msg.photos as string[]);
       }
+
+      if (msg.type === "retake" && msg.peerId !== peerIdRef.current) {
+        onRetakeReceivedRef.current?.();
+      }
     };
 
     return () => {
@@ -331,5 +343,5 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
     }
   }, [localStream, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
-  return { remoteStream, connected, peerCount, sendPhoto, sendPhotos };
+  return { remoteStream, connected, peerCount, sendPhoto, sendPhotos, sendRetake };
 }
