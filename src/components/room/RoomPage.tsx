@@ -74,13 +74,18 @@ export default function RoomPage() {
   };
 
   const handleSignIn = async () => {
-    if (!email.trim() || !password.trim()) return;
+    if (!email.trim() || !password.trim() || !name.trim()) return;
     setLoading(true);
     setError("");
     try {
       await api.login(email, password);
       const u = api.getUser();
-      setUser(u);
+      if (u && name.trim()) {
+        u.name = name.trim();
+        setUser(u);
+      } else {
+        setUser(u);
+      }
       setStep("choose");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Invalid email or password");
@@ -265,7 +270,7 @@ export default function RoomPage() {
                   />
                 </div>
 
-                <div className="mb-8">
+                <div className="mb-5">
                   <label className="block text-xs font-medium text-warm-gray-500 mb-2 tracking-wide uppercase">
                     <Lock className="w-3.5 h-3.5 inline mr-1.5" /> Password
                   </label>
@@ -278,9 +283,23 @@ export default function RoomPage() {
                   />
                 </div>
 
+                <div className="mb-8">
+                  <label className="block text-xs font-medium text-warm-gray-500 mb-2 tracking-wide uppercase">
+                    <Heart className="w-3.5 h-3.5 inline mr-1.5" /> Your Name
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="What should we call you?"
+                    className="cute-input"
+                    maxLength={20}
+                  />
+                </div>
+
                 <button
                   onClick={handleSignIn}
-                  disabled={loading || !email.trim() || !password.trim()}
+                  disabled={loading || !email.trim() || !password.trim() || !name.trim()}
                   className="cute-button w-full bg-gradient-to-r from-rose-500 to-rose-600 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {loading ? (
