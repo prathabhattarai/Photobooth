@@ -320,15 +320,6 @@ export default function RoomPage() {
                     </span>
                   )}
                 </button>
-
-                <div className="text-center mt-5 pt-4 border-t border-warm-gray-100">
-                  <button
-                    onClick={() => { setStep("choose"); setError(""); }}
-                    className="text-sm text-warm-gray-400 hover:text-warm-gray-600 transition-colors"
-                  >
-                    ← Back
-                  </button>
-                </div>
               </div>
             </motion.div>
           )}
