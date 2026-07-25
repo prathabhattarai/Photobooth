@@ -54,20 +54,14 @@ async function composeCollage(localFrames: string[], partnerFrames: string[], yo
   const partnerImages = images.slice(4, 8);
 
   const TOTAL_W = 650;
-  const PAD = 24;
-  const GAP = 12;
-  const COL_GAP = 16;
-  const CELL_PAD = 8;
-  const CELL_R = 14;
-  const PHOTO_R = 10;
-  const HEADER_H = 44;
+  const PAD = 20;
+  const ROW_GAP = 10;
+  const HEADER_H = 32;
   const avail = TOTAL_W - PAD * 2;
-  const colW = (avail - COL_GAP) / 2;
-  const cellW = colW;
-  const photoW = cellW - CELL_PAD * 2;
-  const photoH = Math.round(photoW * 4 / 3);
-  const cellH = photoH + CELL_PAD * 2;
-  const TOTAL_H = PAD + HEADER_H + cellH * 4 + GAP * 3 + PAD;
+  const halfW = avail / 2;
+  const photoH = Math.round(halfW * 4 / 3);
+  const ROW_H = photoH;
+  const TOTAL_H = PAD + HEADER_H + ROW_H * 4 + ROW_GAP * 3 + PAD;
 
   const canvas = document.createElement("canvas");
   canvas.width = TOTAL_W;
@@ -79,53 +73,39 @@ async function composeCollage(localFrames: string[], partnerFrames: string[], yo
   ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
 
   const colNames = [yourName || "You", partnerNm || "Partner"];
-  const colX = [PAD, PAD + colW + COL_GAP];
-
-  ctx.font = "bold 14px Georgia, serif";
+  ctx.font = "bold 13px Georgia, serif";
   ctx.textAlign = "center";
   ctx.fillStyle = "#d4627a";
-  ctx.fillText(colNames[0], colX[0] + colW / 2, PAD + 18);
-  ctx.fillText(colNames[1], colX[1] + colW / 2, PAD + 18);
+  ctx.fillText(colNames[0], PAD + halfW / 2, PAD + 14);
+  ctx.fillStyle = "#a78bfa";
+  ctx.fillText(colNames[1], PAD + halfW + halfW / 2, PAD + 14);
 
   ctx.strokeStyle = "#f0c4d0";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(PAD + 30, PAD + HEADER_H - 10);
-  ctx.lineTo(TOTAL_W - PAD - 30, PAD + HEADER_H - 10);
+  ctx.moveTo(PAD + 30, PAD + HEADER_H - 6);
+  ctx.lineTo(TOTAL_W - PAD - 30, PAD + HEADER_H - 6);
   ctx.stroke();
 
-  function drawCell(img: HTMLImageElement, x: number, y: number) {
+  function drawPhoto(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
     if (!ctx) return;
     ctx.save();
-    roundRect(ctx, x, y, cellW, cellH, CELL_R);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.shadowColor = "rgba(0,0,0,0.08)";
-    ctx.shadowBlur = 12;
-    ctx.shadowOffsetY = 4;
-    roundRect(ctx, x, y, cellW, cellH, CELL_R);
-    ctx.fill();
-    ctx.shadowColor = "transparent";
-
-    const photoX = x + CELL_PAD;
-    const photoY = y + CELL_PAD;
     ctx.beginPath();
-    roundRect(ctx, photoX, photoY, photoW, photoH, PHOTO_R);
+    ctx.rect(x, y, w, h);
     ctx.clip();
-
     const imgRatio = img.width / img.height;
-    const slotRatio = photoW / photoH;
+    const slotRatio = w / h;
     let drawW: number, drawH: number, drawX: number, drawY: number;
     if (imgRatio > slotRatio) {
-      drawH = photoH;
-      drawW = photoH * imgRatio;
-      drawX = photoX + (photoW - drawW) / 2;
-      drawY = photoY;
+      drawH = h;
+      drawW = h * imgRatio;
+      drawX = x + (w - drawW) / 2;
+      drawY = y;
     } else {
-      drawW = photoW;
-      drawH = photoW / imgRatio;
-      drawX = photoX;
-      drawY = photoY + (photoH - drawH) / 2;
+      drawW = w;
+      drawH = w / imgRatio;
+      drawX = x;
+      drawY = y + (h - drawH) / 2;
     }
     ctx.filter = "grayscale(1) contrast(1.1) brightness(1.02)";
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
@@ -135,9 +115,9 @@ async function composeCollage(localFrames: string[], partnerFrames: string[], yo
 
   const startY = PAD + HEADER_H;
   for (let i = 0; i < 4; i++) {
-    const cellY = startY + i * (cellH + GAP);
-    if (localImages[i]) drawCell(localImages[i], colX[0], cellY);
-    if (partnerImages[i]) drawCell(partnerImages[i], colX[1], cellY);
+    const rowY = startY + i * (ROW_H + ROW_GAP);
+    if (localImages[i]) drawPhoto(localImages[i], PAD, rowY, halfW, ROW_H);
+    if (partnerImages[i]) drawPhoto(partnerImages[i], PAD + halfW, rowY, halfW, ROW_H);
   }
 
   return canvas.toDataURL("image/png");
@@ -848,7 +828,7 @@ export default function BoothPage() {
 
             {/* 2-Column A|B Collage Card */}
             <div
-              className="rounded-3xl p-6 mb-8 w-full max-w-[650px] mx-auto px-4 sm:px-6"
+              className="rounded-3xl p-4 mb-8 w-full max-w-[650px] mx-auto px-4 sm:px-6"
               style={{
                 background: "#ffffff",
                 boxShadow: "0 15px 40px rgba(0,0,0,0.15)",
@@ -856,64 +836,49 @@ export default function BoothPage() {
             >
               {capturedLocalFrames.length >= 4 && capturedPartnerFrames.length >= 4 ? (
                 <div>
-                  {/* Column Headers */}
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <p className="text-center text-sm font-bold text-pink-500 font-serif">
-                      {user?.name || "You"}
-                    </p>
-                    <p className="text-center text-sm font-bold text-lavender-500 font-serif">
-                      {partnerName || "Partner"}
-                    </p>
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <p className="text-xs font-bold text-pink-500 font-serif">{user?.name || "You"}</p>
+                    <p className="text-xs font-bold text-lavender-500 font-serif">{partnerName || "Partner"}</p>
                   </div>
-                  <div className="h-px bg-gradient-to-r from-transparent via-pink-200 to-transparent mb-4" />
-
-                  {/* 4 Rows × 2 Columns */}
-                  <div className="flex flex-col gap-3">
+                  <div className="h-px bg-gradient-to-r from-transparent via-pink-200 to-transparent mb-3" />
+                  <div className="flex flex-col gap-2.5">
                     {[0, 1, 2, 3].map((i) => (
-                      <div key={i} className="grid grid-cols-2 gap-3">
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.35, delay: i * 0.08 }}
-                          className="rounded-xl p-1.5"
-                          style={{
-                            background: "#ffffff",
-                            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
-                          }}
-                        >
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.35, delay: i * 0.1 }}
+                        className="rounded-xl overflow-hidden flex"
+                        style={{
+                          background: "#ffffff",
+                          boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+                        }}
+                      >
+                        <div className="flex-1 border-r border-pink-100">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={capturedLocalFrames[i]}
                             alt={`Frame ${i + 1}`}
-                            className="w-full rounded-lg object-cover"
+                            className="w-full object-cover"
                             style={{
                               aspectRatio: "3/4",
                               filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
                             }}
                           />
-                        </motion.div>
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.35, delay: (i + 4) * 0.08 }}
-                          className="rounded-xl p-1.5"
-                          style={{
-                            background: "#ffffff",
-                            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
-                          }}
-                        >
+                        </div>
+                        <div className="flex-1">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={capturedPartnerFrames[i]}
                             alt={`Frame ${i + 1}`}
-                            className="w-full rounded-lg object-cover"
+                            className="w-full object-cover"
                             style={{
                               aspectRatio: "3/4",
                               filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
                             }}
                           />
-                        </motion.div>
-                      </div>
+                        </div>
+                      </motion.div>
                     ))}
                   </div>
                 </div>
