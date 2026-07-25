@@ -47,192 +47,72 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-async function composeFinalImage(localPhoto: string, partnerPhoto: string): Promise<string> {
-  const localImg = await loadImage(localPhoto);
-  const partnerImg = await loadImage(partnerPhoto);
-
-  const W = 400;
-  const H = 533;
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return localPhoto;
-
-  const halfH = Math.floor(H / 2);
-  const gap = 1;
-
-  function drawPortrait(img: HTMLImageElement, y: number, h: number) {
-    if (!ctx) return;
-    const imgRatio = img.width / img.height;
-    const slotRatio = W / h;
-    let drawW: number, drawH: number, drawX: number, drawY: number;
-    if (imgRatio > slotRatio) {
-      drawW = W;
-      drawH = W / imgRatio;
-      drawX = 0;
-      drawY = y + (h - drawH) / 2;
-    } else {
-      drawH = h;
-      drawW = h * imgRatio;
-      drawX = (W - drawW) / 2;
-      drawY = y;
-    }
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, y, W, h);
-    ctx.clip();
-    ctx.fillStyle = "#f0f0f0";
-    ctx.fillRect(0, y, W, h);
-    ctx.filter = "grayscale(1)";
-    ctx.drawImage(img, drawX, drawY, drawW, drawH);
-    ctx.filter = "none";
-    ctx.restore();
-  }
-
-  drawPortrait(localImg, 0, halfH);
-  drawPortrait(partnerImg, halfH + gap, H - halfH - gap);
-
-  return canvas.toDataURL("image/png");
-}
-
-async function composeStrip(frames: string[], yourName: string, partnerNm: string): Promise<string> {
-  const images = await Promise.all(frames.map((f) => loadImage(f)));
-
-  const STRIP_W = 420;
-  const PAD = 24;
-  const GAP = 16;
-  const SLOT_W = STRIP_W - PAD * 2;
-  const SLOT_H = 250;
-  const SLOT_R = 8;
-  const HEADER_H = 80;
-  const FOOTER_H = 70;
-  const STRIP_H = HEADER_H + PAD + SLOT_H * 4 + GAP * 3 + PAD + FOOTER_H;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = STRIP_W;
-  canvas.height = STRIP_H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return frames[0];
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, STRIP_W, STRIP_H);
-
-  const displayName = [yourName, partnerNm].filter(Boolean).join(" & ");
-
-  if (displayName) {
-    ctx.fillStyle = "#d4627a";
-    ctx.font = "bold 18px Georgia, serif";
-    ctx.textAlign = "center";
-    ctx.fillText(displayName, STRIP_W / 2, 36);
-  }
-
-  const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  ctx.fillStyle = "#bbbbbb";
-  ctx.font = "12px Georgia, serif";
-  ctx.textAlign = "center";
-  ctx.fillText(dateStr, STRIP_W / 2, 56);
-
-  ctx.strokeStyle = "#f0c4d0";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(PAD + 40, HEADER_H - 8);
-  ctx.lineTo(STRIP_W - PAD - 40, HEADER_H - 8);
-  ctx.stroke();
-
-  const startY = HEADER_H;
-
-  function drawFrame(img: HTMLImageElement, y: number) {
-    if (!ctx) return;
-    const imgRatio = img.width / img.height;
-    const slotRatio = SLOT_W / SLOT_H;
-    let drawW: number, drawH: number, drawX: number, drawY: number;
-    if (imgRatio > slotRatio) {
-      drawW = SLOT_W;
-      drawH = SLOT_W / imgRatio;
-      drawX = PAD;
-      drawY = y + (SLOT_H - drawH) / 2;
-    } else {
-      drawH = SLOT_H;
-      drawW = SLOT_H * imgRatio;
-      drawX = PAD + (SLOT_W - drawW) / 2;
-      drawY = y;
-    }
-    ctx.save();
-    roundRect(ctx, PAD, y, SLOT_W, SLOT_H, SLOT_R);
-    ctx.clip();
-    ctx.fillStyle = "#f0f0f0";
-    ctx.fillRect(PAD, y, SLOT_W, SLOT_H);
-    ctx.filter = "grayscale(1)";
-    ctx.drawImage(img, drawX, drawY, drawW, drawH);
-    ctx.filter = "none";
-    ctx.restore();
-  }
-
-  for (let i = 0; i < images.length && i < 4; i++) {
-    drawFrame(images[i], startY + i * (SLOT_H + GAP));
-  }
-
-  const footerY = STRIP_H - FOOTER_H + 8;
-
-  ctx.fillStyle = "#d4627a";
-  ctx.font = "13px Georgia, serif";
-  ctx.textAlign = "center";
-  ctx.fillText("\u2764 TogetherFrame \u2764", STRIP_W / 2, footerY);
-
-  return canvas.toDataURL("image/png");
-}
-
-async function composeCollage(frames: string[]): Promise<string> {
-  const images = await Promise.all(frames.map((f) => loadImage(f)));
+async function composeCollage(localFrames: string[], partnerFrames: string[], yourName: string, partnerNm: string): Promise<string> {
+  const allFrames = [...localFrames, ...partnerFrames];
+  const images = await Promise.all(allFrames.map((f) => loadImage(f)));
+  const localImages = images.slice(0, 4);
+  const partnerImages = images.slice(4, 8);
 
   const TOTAL_W = 650;
   const PAD = 24;
-  const GAP = 16;
+  const GAP = 12;
+  const COL_GAP = 16;
   const CELL_PAD = 8;
-  const CELL_R = 16;
-  const PHOTO_R = 14;
+  const CELL_R = 14;
+  const PHOTO_R = 10;
+  const HEADER_H = 44;
   const avail = TOTAL_W - PAD * 2;
-  const cellW = (avail - GAP) / 2;
+  const colW = (avail - COL_GAP) / 2;
+  const cellW = colW;
   const photoW = cellW - CELL_PAD * 2;
   const photoH = Math.round(photoW * 4 / 3);
   const cellH = photoH + CELL_PAD * 2;
-  const TOTAL_H = PAD + cellH + GAP + cellH + PAD;
+  const TOTAL_H = PAD + HEADER_H + cellH * 4 + GAP * 3 + PAD;
 
   const canvas = document.createElement("canvas");
   canvas.width = TOTAL_W;
   canvas.height = TOTAL_H;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return frames[0];
+  if (!ctx) return localFrames[0];
 
-  ctx.fillStyle = "#f5f5f5";
+  ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
 
-  const positions = [
-    { col: 0, row: 0 },
-    { col: 1, row: 0 },
-    { col: 0, row: 1 },
-    { col: 1, row: 1 },
-  ];
+  const colNames = [yourName || "You", partnerNm || "Partner"];
+  const colX = [PAD, PAD + colW + COL_GAP];
 
-  for (let i = 0; i < 4 && i < images.length; i++) {
-    const { col, row } = positions[i];
-    const cellX = PAD + col * (cellW + GAP);
-    const cellY = PAD + row * (cellH + GAP);
+  ctx.font = "bold 14px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#d4627a";
+  ctx.fillText(colNames[0], colX[0] + colW / 2, PAD + 18);
+  ctx.fillText(colNames[1], colX[1] + colW / 2, PAD + 18);
 
+  ctx.strokeStyle = "#f0c4d0";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD + 30, PAD + HEADER_H - 10);
+  ctx.lineTo(TOTAL_W - PAD - 30, PAD + HEADER_H - 10);
+  ctx.stroke();
+
+  function drawCell(img: HTMLImageElement, x: number, y: number) {
+    if (!ctx) return;
     ctx.save();
-    roundRect(ctx, cellX, cellY, cellW, cellH, CELL_R);
+    roundRect(ctx, x, y, cellW, cellH, CELL_R);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
+    ctx.shadowColor = "rgba(0,0,0,0.08)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    roundRect(ctx, x, y, cellW, cellH, CELL_R);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
 
-    const photoX = cellX + CELL_PAD;
-    const photoY = cellY + CELL_PAD;
-
+    const photoX = x + CELL_PAD;
+    const photoY = y + CELL_PAD;
     ctx.beginPath();
     roundRect(ctx, photoX, photoY, photoW, photoH, PHOTO_R);
     ctx.clip();
 
-    const img = images[i];
     const imgRatio = img.width / img.height;
     const slotRatio = photoW / photoH;
     let drawW: number, drawH: number, drawX: number, drawY: number;
@@ -251,6 +131,13 @@ async function composeCollage(frames: string[]): Promise<string> {
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.filter = "none";
     ctx.restore();
+  }
+
+  const startY = PAD + HEADER_H;
+  for (let i = 0; i < 4; i++) {
+    const cellY = startY + i * (cellH + GAP);
+    if (localImages[i]) drawCell(localImages[i], colX[0], cellY);
+    if (partnerImages[i]) drawCell(partnerImages[i], colX[1], cellY);
   }
 
   return canvas.toDataURL("image/png");
@@ -275,7 +162,8 @@ export default function BoothPage() {
   const [isComposing, setIsComposing] = useState(false);
 
   const [view, setView] = useState<BoothView>("camera");
-  const [capturedFrames, setCapturedFrames] = useState<string[]>([]);
+  const [capturedLocalFrames, setCapturedLocalFrames] = useState<string[]>([]);
+  const [capturedPartnerFrames, setCapturedPartnerFrames] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
@@ -285,6 +173,8 @@ export default function BoothPage() {
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const accumulatedFramesRef = useRef<string[]>([]);
+  const localFramesRef = useRef<string[]>([]);
+  const partnerFramesRef = useRef<string[]>([]);
   const localFrameRef = useRef<string | null>(null);
   const partnerFrameRef = useRef<string | null>(null);
   const frameComposedRef = useRef(false);
@@ -336,12 +226,15 @@ export default function BoothPage() {
   const resetPhotoState = useCallback(() => {
     sequenceActiveRef.current = false;
     accumulatedFramesRef.current = [];
+    localFramesRef.current = [];
+    partnerFramesRef.current = [];
     localFrameRef.current = null;
     partnerFrameRef.current = null;
     frameComposedRef.current = false;
     setCountdown(null);
     setCaptureCount(0);
-    setCapturedFrames([]);
+    setCapturedLocalFrames([]);
+    setCapturedPartnerFrames([]);
     setSaved(false);
     setView("camera");
     if (countdownIntervalRef.current) {
@@ -410,13 +303,15 @@ export default function BoothPage() {
 
   const handleSharedStateUpdate = useCallback((updates: Partial<SharedState>) => {
     if (updates.view === "result") {
-      setCapturedFrames([...accumulatedFramesRef.current]);
+      setCapturedLocalFrames([...localFramesRef.current]);
+      setCapturedPartnerFrames([...partnerFramesRef.current]);
       setView("result");
       setIsComposing(false);
     }
     if (updates.view === "camera") {
       setView("camera");
-      setCapturedFrames([]);
+      setCapturedLocalFrames([]);
+      setCapturedPartnerFrames([]);
     }
   }, []);
 
@@ -439,16 +334,17 @@ export default function BoothPage() {
   const finishSequence = useCallback(() => {
     sequenceActiveRef.current = false;
     setIsComposing(true);
-    setCapturedFrames([...accumulatedFramesRef.current]);
+    setCapturedLocalFrames([...localFramesRef.current]);
+    setCapturedPartnerFrames([...partnerFramesRef.current]);
     setView("result");
     setIsComposing(false);
     updateSharedState({ resultImage: "collage", view: "result" });
   }, [updateSharedState]);
 
   const processFrame = useCallback(async (localPhoto: string, partnerPhoto: string) => {
-    const coupleFrame = await composeFinalImage(localPhoto, partnerPhoto);
-    accumulatedFramesRef.current.push(coupleFrame);
-    const count = accumulatedFramesRef.current.length;
+    localFramesRef.current.push(localPhoto);
+    partnerFramesRef.current.push(partnerPhoto);
+    const count = localFramesRef.current.length;
     setCaptureCount(count);
 
     if (count >= TOTAL_PHOTOS) {
@@ -559,8 +455,8 @@ export default function BoothPage() {
   };
 
   const handleDownload = async () => {
-    if (capturedFrames.length < 4) return;
-    const collage = await composeCollage(capturedFrames);
+    if (capturedLocalFrames.length < 4 || capturedPartnerFrames.length < 4) return;
+    const collage = await composeCollage(capturedLocalFrames, capturedPartnerFrames, user?.name || "", partnerName);
     const link = document.createElement("a");
     link.download = `togetherframe-${Date.now()}.png`;
     link.href = collage;
@@ -568,10 +464,10 @@ export default function BoothPage() {
   };
 
   const handleSave = async () => {
-    if (capturedFrames.length < 4 || saved) return;
+    if (capturedLocalFrames.length < 4 || saved) return;
     setIsSaving(true);
     try {
-      const collage = await composeCollage(capturedFrames);
+      const collage = await composeCollage(capturedLocalFrames, capturedPartnerFrames, user?.name || "", partnerName);
       await saveMemoryToAPI(roomCode, collage, "Our photo collage", selectedFrame);
       setSaved(true);
       addGalleryItem({
@@ -950,7 +846,7 @@ export default function BoothPage() {
               </p>
             </div>
 
-            {/* 2×2 Collage Card */}
+            {/* 2-Column A|B Collage Card */}
             <div
               className="rounded-3xl p-6 mb-8 w-full max-w-[650px] mx-auto px-4 sm:px-6"
               style={{
@@ -958,32 +854,68 @@ export default function BoothPage() {
                 boxShadow: "0 15px 40px rgba(0,0,0,0.15)",
               }}
             >
-              {capturedFrames.length >= 4 ? (
-                <div className="grid grid-cols-2 gap-4">
-                  {capturedFrames.slice(0, 4).map((frame, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.35, delay: i * 0.08 }}
-                      className="rounded-2xl p-2"
-                      style={{
-                        background: "#ffffff",
-                        boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
-                      }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={frame}
-                        alt={`Frame ${i + 1}`}
-                        className="w-full rounded-xl object-cover"
-                        style={{
-                          aspectRatio: "3/4",
-                          filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
-                        }}
-                      />
-                    </motion.div>
-                  ))}
+              {capturedLocalFrames.length >= 4 && capturedPartnerFrames.length >= 4 ? (
+                <div>
+                  {/* Column Headers */}
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <p className="text-center text-sm font-bold text-pink-500 font-serif">
+                      {user?.name || "You"}
+                    </p>
+                    <p className="text-center text-sm font-bold text-lavender-500 font-serif">
+                      {partnerName || "Partner"}
+                    </p>
+                  </div>
+                  <div className="h-px bg-gradient-to-r from-transparent via-pink-200 to-transparent mb-4" />
+
+                  {/* 4 Rows × 2 Columns */}
+                  <div className="flex flex-col gap-3">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div key={i} className="grid grid-cols-2 gap-3">
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.35, delay: i * 0.08 }}
+                          className="rounded-xl p-1.5"
+                          style={{
+                            background: "#ffffff",
+                            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={capturedLocalFrames[i]}
+                            alt={`Frame ${i + 1}`}
+                            className="w-full rounded-lg object-cover"
+                            style={{
+                              aspectRatio: "3/4",
+                              filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
+                            }}
+                          />
+                        </motion.div>
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.35, delay: (i + 4) * 0.08 }}
+                          className="rounded-xl p-1.5"
+                          style={{
+                            background: "#ffffff",
+                            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={capturedPartnerFrames[i]}
+                            alt={`Frame ${i + 1}`}
+                            className="w-full rounded-lg object-cover"
+                            style={{
+                              aspectRatio: "3/4",
+                              filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
+                            }}
+                          />
+                        </motion.div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-center py-20">
