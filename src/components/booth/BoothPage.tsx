@@ -19,7 +19,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { FrameType } from "@/lib/types";
-import { FRAMES } from "@/lib/constants";
+
 import { useApp } from "@/lib/store";
 import FloatingElements from "@/components/ui/FloatingElements";
 import FrameLayoutSelector from "@/components/ui/FrameLayoutSelector";
@@ -155,7 +155,7 @@ export default function BoothPage() {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [selectedFrame, setSelectedFrame] = useState<FrameType>("polaroid");
+  const selectedFrame: FrameType = "polaroid";
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
@@ -289,15 +289,9 @@ export default function BoothPage() {
     if (!ctx) return null;
     if (hasRemote) {
       const halfW = canvas.width / 2;
-      ctx.save();
-      ctx.translate(halfW, 0);
-      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0, halfW, canvas.height);
-      ctx.restore();
       ctx.drawImage(remoteVideo, halfW, 0, halfW, canvas.height);
     } else {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0);
     }
     return canvas.toDataURL("image/png");
@@ -604,27 +598,6 @@ export default function BoothPage() {
                 </div>
                 <FrameOverlay frame={selectedFrame} side="right" />
               </div>
-            </div>
-          </div>
-
-          {/* Frame TYPE Picker */}
-          <div className="mb-4">
-            <p className="text-xs font-medium text-warm-gray-400 mb-2 text-center">Choose your frame</p>
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide justify-center">
-              {FRAMES.map((frame) => (
-                <button
-                  key={frame.id}
-                  onClick={() => setSelectedFrame(frame.id)}
-                  className={`flex-shrink-0 px-3 py-2 rounded-2xl text-center transition-all ${
-                    selectedFrame === frame.id
-                      ? "bg-pink-100 ring-2 ring-pink-400 scale-105 shadow-md"
-                      : "bg-white/60 hover:bg-pink-50"
-                  }`}
-                >
-                  <div className="text-lg mb-0.5">{frame.emoji}</div>
-                  <div className="text-[10px] font-bold text-warm-gray-500 whitespace-nowrap">{frame.name}</div>
-                </button>
-              ))}
             </div>
           </div>
 
