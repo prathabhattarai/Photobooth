@@ -104,7 +104,67 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   return canvas.toDataURL("image/png");
 }
 
+async function composeStrip(frames: string[]): Promise<string> {
+  const images = await Promise.all(frames.map((f) => loadImage(f)));
+
+  const STRIP_W = 900;
+  const STRIP_H = 3300;
+  const PAD = 24;
+  const GAP = 14;
+  const TEXT_AREA = 60;
+  const SLOT_H = (STRIP_H - PAD * 2 - GAP * 3 - TEXT_AREA) / 4;
+  const SLOT_W = STRIP_W - PAD * 2;
+  const SLOT_R = 18;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = STRIP_W;
+  canvas.height = STRIP_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return frames[0];
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, STRIP_W, STRIP_H);
+
+  function drawFrame(img: HTMLImageElement, y: number) {
+    if (!ctx) return;
+    const imgRatio = img.width / img.height;
+    const slotRatio = SLOT_W / SLOT_H;
+    let drawW: number, drawH: number, drawX: number, drawY: number;
+    if (imgRatio > slotRatio) {
+      drawW = SLOT_W;
+      drawH = SLOT_W / imgRatio;
+      drawX = PAD;
+      drawY = y + (SLOT_H - drawH) / 2;
+    } else {
+      drawH = SLOT_H;
+      drawW = SLOT_H * imgRatio;
+      drawX = PAD + (SLOT_W - drawW) / 2;
+      drawY = y;
+    }
+    ctx.save();
+    roundRect(ctx, PAD, y, SLOT_W, SLOT_H, SLOT_R);
+    ctx.clip();
+    ctx.fillStyle = "#f0f0f0";
+    ctx.fillRect(PAD, y, SLOT_W, SLOT_H);
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.restore();
+  }
+
+  for (let i = 0; i < images.length && i < 4; i++) {
+    drawFrame(images[i], PAD + i * (SLOT_H + GAP));
+  }
+
+  ctx.fillStyle = "#bbbbbb";
+  ctx.font = "15px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText("TogetherFrame", STRIP_W / 2, STRIP_H - 20);
+
+  return canvas.toDataURL("image/png");
+}
+
 type BoothView = "camera" | "result";
+
+const TOTAL_PHOTOS = 4;
 
 export default function BoothPage() {
   const router = useRouter();
@@ -125,25 +185,31 @@ export default function BoothPage() {
   const [resultImage, setResultImage] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [captureCount, setCaptureCount] = useState(0);
 
   const roomCode = currentRoomCode || "local";
   const userName = user?.name || "Guest";
 
-  const countdownTargetRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const localCaptureRef = useRef<string | null>(null);
   const partnerCaptureRef = useRef<string | null>(null);
   const composedRef = useRef(false);
+  const frameIndexRef = useRef(0);
+  const accumulatedFramesRef = useRef<string[]>([]);
+  const captureSequenceActiveRef = useRef(false);
 
   const resetPhotoState = useCallback(() => {
     setCountdown(null);
     setSaved(false);
     setResultImage("");
+    setCaptureCount(0);
     setView("camera");
     localCaptureRef.current = null;
     partnerCaptureRef.current = null;
     composedRef.current = false;
-    countdownTargetRef.current = null;
+    frameIndexRef.current = 0;
+    accumulatedFramesRef.current = [];
+    captureSequenceActiveRef.current = false;
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
@@ -154,20 +220,26 @@ export default function BoothPage() {
     resetPhotoState();
   }, [resetPhotoState]);
 
-  const composeAndShowRef = useRef<(local: string, partner: string) => void>(() => {});
-  const handlePhotoReceivedInnerRef = useRef<(photoData: string) => void>(() => {});
-  const handleCaptureStartInnerRef = useRef<(captureStartTime: number) => void>(() => {});
-
   const handlePhotoReceivedStable = useCallback((photoData: string) => {
-    handlePhotoReceivedInnerRef.current(photoData);
+    partnerCaptureRef.current = photoData;
+    if (localCaptureRef.current && !composedRef.current) {
+      composedRef.current = true;
+      composeFinalImage(localCaptureRef.current, photoData).then((img) => {
+        setResultImage(img);
+        setView("result");
+        updateSharedState({ resultImage: img, view: "result" });
+      }).catch(() => {
+        setResultImage(localCaptureRef.current || photoData);
+        setView("result");
+      });
+    }
   }, []);
 
   const handleRetakeReceivedStable = useCallback(() => {
     handleRetakeReceived();
   }, [handleRetakeReceived]);
 
-  const handleCaptureStartStable = useCallback((captureStartTime: number) => {
-    handleCaptureStartInnerRef.current(captureStartTime);
+  const handleCaptureStartStable = useCallback((_captureStartTime: number) => {
   }, []);
 
   const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
@@ -179,23 +251,44 @@ export default function BoothPage() {
     onCaptureStartReceived: handleCaptureStartStable,
   });
 
-  const composeAndShow = useCallback(async (local: string, partner: string) => {
-    if (composedRef.current) return;
-    composedRef.current = true;
-    setIsComposing(true);
+  const startCamera = useCallback(async () => {
     try {
-      const finalImg = await composeFinalImage(local, partner);
-      setResultImage(finalImg);
-      setView("result");
-      updateSharedState({ resultImage: finalImg, view: "result" });
-    } catch {
-      setResultImage(local);
-      setView("result");
-      updateSharedState({ resultImage: local, view: "result" });
-    } finally {
-      setIsComposing(false);
+      setCameraError(null);
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+        audio: true,
+      });
+      setStream(mediaStream);
+      setIsActive(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (err) {
+      const message = err instanceof DOMException && err.name === "NotAllowedError"
+        ? "Camera permission denied. Please allow camera access."
+        : err instanceof DOMException && err.name === "NotFoundError"
+        ? "No camera found on this device."
+        : "Could not access camera.";
+      setCameraError(message);
     }
-  }, [updateSharedState]);
+  }, []);
+
+  useEffect(() => {
+    startCamera();
+  }, [startCamera]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+    }
+  }, [stream]);
+
+  const remoteVideoCallback = useCallback((node: HTMLVideoElement | null) => {
+    if (node && remoteStream) {
+      node.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
   const capturePhoto = (): string | null => {
     const video = videoRef.current;
@@ -212,114 +305,27 @@ export default function BoothPage() {
     return canvas.toDataURL("image/png");
   };
 
-  const handlePhotoReceivedInner = useCallback((photoData: string) => {
-    partnerCaptureRef.current = photoData;
-    if (localCaptureRef.current && !composedRef.current) {
-      composeAndShowRef.current(localCaptureRef.current, photoData);
-    }
-  }, []);
-
-  const handleCaptureStartInner = useCallback((captureStartTime: number) => {
-    countdownTargetRef.current = captureStartTime;
-    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    countdownIntervalRef.current = setInterval(() => {
-      const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
-      if (remaining > 0) {
-        setCountdown(remaining);
-      } else {
-        setCountdown(null);
-        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-        const photo = capturePhoto();
-        if (photo) {
-          localCaptureRef.current = photo;
-          setFlashVisible(true);
-          setTimeout(() => setFlashVisible(false), 300);
-          sendPhoto(photo);
-          if (partnerCaptureRef.current && !composedRef.current) {
-            composeAndShowRef.current(photo, partnerCaptureRef.current);
-          }
-        }
-      }
-    }, 50);
-  }, [sendPhoto]);
-
-  useEffect(() => { composeAndShowRef.current = composeAndShow; }, [composeAndShow]);
-  useEffect(() => { handlePhotoReceivedInnerRef.current = handlePhotoReceivedInner; }, [handlePhotoReceivedInner]);
-  useEffect(() => { handleCaptureStartInnerRef.current = handleCaptureStartInner; }, [handleCaptureStartInner]);
-
-  const startCamera = useCallback(async () => {
-    try {
-      setCameraError(null);
-      let mediaStream: MediaStream;
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480, facingMode: "user" },
-          audio: true,
-        });
-      } catch {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480, facingMode: "user" },
-          audio: false,
-        });
-      }
-      setStream(mediaStream);
-      setIsActive(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (err: unknown) {
-      const name = err instanceof DOMException ? err.name : "";
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        setCameraError("Camera permission was denied. Tap the lock/info icon in your address bar, find Camera, and set it to Allow. Then reload the page.");
-      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        setCameraError("No camera found. Make sure your device has a camera connected.");
-      } else if (name === "NotReadableError" || name === "TrackStartError") {
-        setCameraError("Camera is being used by another app. Close other camera apps and try again.");
-      } else {
-        setCameraError("Could not access camera. Check your browser camera settings and reload.");
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      stream?.getTracks().forEach((t) => t.stop());
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (stream && videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
-  const remoteVideoCallback = useCallback((node: HTMLVideoElement | null) => {
-    remoteVideoRef.current = node;
-    if (node && remoteStream) {
-      node.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
-
   const startCapture = () => {
     localCaptureRef.current = null;
     partnerCaptureRef.current = null;
     composedRef.current = false;
+    frameIndexRef.current = 0;
+    accumulatedFramesRef.current = [];
+    captureSequenceActiveRef.current = true;
     setSaved(false);
     setResultImage("");
+    setCaptureCount(0);
     setView("camera");
 
     addTimelineActivity({
       id: `cap-${Date.now()}`,
       type: "photo_captured",
-      message: "Started a new photo session",
+      message: `Started a 4-photo strip session`,
       timestamp: new Date().toISOString(),
       user: userName,
     });
 
     const captureStartTime = Date.now() + 3000;
-    countdownTargetRef.current = captureStartTime;
     sendCaptureStart(captureStartTime);
 
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
@@ -331,14 +337,35 @@ export default function BoothPage() {
         setCountdown(null);
         if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
+
         const photo = capturePhoto();
         if (photo) {
           localCaptureRef.current = photo;
           setFlashVisible(true);
           setTimeout(() => setFlashVisible(false), 300);
           sendPhoto(photo);
+
           if (partnerCaptureRef.current && !composedRef.current) {
-            composeAndShow(photo, partnerCaptureRef.current);
+            composedRef.current = true;
+            const local = localCaptureRef.current;
+            const partner = partnerCaptureRef.current;
+            composeFinalImage(local, partner).then((coupleImg) => {
+              accumulatedFramesRef.current.push(coupleImg);
+              setCaptureCount(accumulatedFramesRef.current.length);
+
+              if (accumulatedFramesRef.current.length >= TOTAL_PHOTOS) {
+                captureSequenceActiveRef.current = false;
+                composeStrip(accumulatedFramesRef.current).then((strip) => {
+                  setResultImage(strip);
+                  setView("result");
+                  updateSharedState({ resultImage: strip, view: "result" });
+                });
+              } else {
+                localCaptureRef.current = null;
+                partnerCaptureRef.current = null;
+                composedRef.current = false;
+              }
+            });
           }
         }
       }
@@ -348,7 +375,7 @@ export default function BoothPage() {
   const handleDownload = () => {
     if (!resultImage) return;
     const link = document.createElement("a");
-    link.download = `togetherframe-${Date.now()}.png`;
+    link.download = `togetherframe-strip-${Date.now()}.png`;
     link.href = resultImage;
     link.click();
   };
@@ -357,12 +384,12 @@ export default function BoothPage() {
     if (!resultImage || saved) return;
     setIsSaving(true);
     try {
-      await saveMemoryToAPI(roomCode, resultImage, "Our cute moment", selectedFrame);
+      await saveMemoryToAPI(roomCode, resultImage, "Our photo strip", selectedFrame);
       setSaved(true);
       addGalleryItem({
         id: `gal-${Date.now()}`,
         imageUrl: resultImage,
-        caption: "Our cute moment",
+        caption: "Our photo strip",
         frame: selectedFrame,
         createdAt: new Date().toISOString(),
         savedBy: userName,
@@ -372,7 +399,7 @@ export default function BoothPage() {
       addGalleryItem({
         id: `gal-${Date.now()}`,
         imageUrl: resultImage,
-        caption: "Our cute moment",
+        caption: "Our photo strip",
         frame: selectedFrame,
         createdAt: new Date().toISOString(),
         savedBy: userName,
@@ -486,12 +513,11 @@ export default function BoothPage() {
           </div>
         </motion.div>
 
-        {/* ========== CAMERA VIEW (always mounted, hidden when viewing result) ========== */}
+        {/* ========== CAMERA VIEW ========== */}
         <div className={view === "camera" ? "" : "hidden"}>
-          {/* Fixed Shared Photobooth Frame — side-by-side */}
+          {/* Side-by-side cameras */}
           <div className="flex justify-center mb-6">
             <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[640px] flex flex-col gap-2">
-              {/* Two side-by-side camera slots */}
               <div className="flex gap-2 w-full">
                 {/* Local Video Slot */}
                 <div className="relative flex-1 aspect-[4/3] bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden">
@@ -566,24 +592,15 @@ export default function BoothPage() {
                       ) : (
                         <div className="text-3xl mb-1 animate-float">💌</div>
                       )}
-                      <p className="text-lavender-400 font-bold text-[10px]">
-                        Connected
-                      </p>
-                      <p className="text-lavender-300 text-[9px] mt-0.5">
-                        Waiting for camera...
-                      </p>
+                      <p className="text-lavender-400 font-bold text-[10px]">Connected</p>
+                      <p className="text-lavender-300 text-[9px] mt-0.5">Waiting for camera...</p>
                     </div>
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <div className="text-2xl mb-1 animate-pulse-soft">💌</div>
-                      <p className="text-lavender-400 font-bold text-[10px]">
-                        Waiting...
-                      </p>
+                      <p className="text-lavender-400 font-bold text-[10px]">Waiting...</p>
                       <p className="text-lavender-300 text-[9px] mt-0.5">
-                        Room:{" "}
-                        <span className="font-bold text-lavender-500">
-                          {roomCode}
-                        </span>
+                        Room: <span className="font-bold text-lavender-500">{roomCode}</span>
                       </p>
                     </div>
                   )}
@@ -593,11 +610,8 @@ export default function BoothPage() {
                 </div>
               </div>
 
-              {/* Bottom Text */}
               <div className="text-center pt-1">
-                <p className="text-[11px] text-gray-300 font-serif tracking-wide">
-                  TogetherFrame
-                </p>
+                <p className="text-[11px] text-gray-300 font-serif tracking-wide">TogetherFrame</p>
               </div>
             </div>
           </div>
@@ -621,7 +635,6 @@ export default function BoothPage() {
               {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
 
-            {/* Capture Button */}
             <button
               onClick={startCapture}
               disabled={isCapturing || isComposing}
@@ -650,9 +663,15 @@ export default function BoothPage() {
             <div className="w-12 h-12" />
           </div>
 
+          {captureCount > 0 && captureCount < TOTAL_PHOTOS && (
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-rose-400 font-medium mb-4">
+              Photo {captureCount} of {TOTAL_PHOTOS} captured!
+            </motion.p>
+          )}
+
           {isComposing && (
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-rose-400 font-medium mb-4">
-              Composing your photo...
+              Composing your strip...
             </motion.p>
           )}
 
@@ -690,18 +709,21 @@ export default function BoothPage() {
                   <p className="text-xl text-white/80 mt-4 handwriting">
                     {countdown === 1 ? "Say cheese!" : "Get ready..."}
                   </p>
+                  <p className="text-sm text-white/60 mt-2">
+                    Photo {Math.min(captureCount + 1, TOTAL_PHOTOS)} of {TOTAL_PHOTOS}
+                  </p>
                 </motion.div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* ========== RESULT VIEW ========== */}
+        {/* ========== RESULT VIEW — Vertical Strip ========== */}
         {view === "result" && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="max-w-2xl mx-auto"
+            className="flex flex-col items-center"
           >
             <div className="text-center mb-6">
               <motion.div
@@ -711,13 +733,13 @@ export default function BoothPage() {
                 className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-gradient-to-r from-pink-100 to-rose-100 border border-pink-200/50 mb-4"
               >
                 <Sparkles className="w-4 h-4 text-pink-500" />
-                <span className="text-sm font-bold text-pink-600">Photo captured!</span>
+                <span className="text-sm font-bold text-pink-600">Strip captured!</span>
               </motion.div>
-              <h2 className="text-2xl font-serif font-bold text-warm-gray-800">Your TogetherFrame</h2>
+              <h2 className="text-2xl font-serif font-bold text-warm-gray-800">Your TogetherFrame Strip</h2>
             </div>
 
-            {/* Preview */}
-            <div className="glass-card rounded-3xl p-6 mb-6 pastel-shadow">
+            {/* Strip Preview — scaled to fit screen */}
+            <div className="glass-card rounded-3xl p-6 mb-6 pastel-shadow max-w-[480px] w-full">
               {isComposing ? (
                 <div className="flex items-center justify-center py-20">
                   <span className="w-10 h-10 border-4 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
@@ -726,14 +748,15 @@ export default function BoothPage() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={resultImage}
-                  alt="Your TogetherFrame"
+                  alt="TogetherFrame Strip"
                   className="w-full rounded-2xl"
+                  style={{ aspectRatio: "900/3300", objectFit: "contain" }}
                 />
               ) : null}
             </div>
 
             {/* Action Buttons */}
-            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full">
               <button
                 onClick={handleDownload}
                 className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-gradient-to-br from-pink-400 to-pink-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
