@@ -264,9 +264,10 @@ export default function BoothPage() {
     }
   }, [stream]);
 
-  useEffect(() => {
-    if (remoteStream && remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
+  const remoteVideoCallback = useCallback((node: HTMLVideoElement | null) => {
+    remoteVideoRef.current = node;
+    if (node && remoteStream) {
+      node.srcObject = remoteStream;
     }
   }, [remoteStream]);
 
@@ -566,7 +567,7 @@ export default function BoothPage() {
               <div className="aspect-[4/3] bg-gradient-to-br from-lavender-100 to-lavender-200 relative flex items-center justify-center">
                 {remoteStream ? (
                   <video
-                    ref={remoteVideoRef}
+                    ref={remoteVideoCallback}
                     autoPlay
                     playsInline
                     className="w-full h-full object-cover"

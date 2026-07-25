@@ -272,6 +272,11 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
           const pc = pcRef.current;
           if (pc && pc.signalingState === "have-local-offer") {
             await pc.setRemoteDescription(new RTCSessionDescription(msg.answer as RTCSessionDescriptionInit));
+            const buffered = [...pendingCandidateRef.current];
+            pendingCandidateRef.current = [];
+            for (const c of buffered) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+            }
           }
         } catch {}
       }
