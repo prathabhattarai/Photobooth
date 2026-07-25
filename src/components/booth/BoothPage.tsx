@@ -207,13 +207,29 @@ export default function BoothPage() {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (!vw || !vh) return null;
+
+    const dw = video.clientWidth;
+    const dh = video.clientHeight;
+    if (!dw || !dh) return null;
+
+    const scale = Math.max(dw / vw, dh / vh);
+    const scaledW = vw * scale;
+    const scaledH = vh * scale;
+    const offsetX = (scaledW - dw) / 2;
+    const offsetY = (scaledH - dh) / 2;
+
+    const sx = offsetX / scale;
+    const sy = offsetY / scale;
+    const sw = dw / scale;
+    const sh = dh / scale;
+
     const canvas = document.createElement("canvas");
-    canvas.width = vw;
-    canvas.height = vh;
+    canvas.width = Math.round(sw);
+    canvas.height = Math.round(sh);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.filter = "grayscale(1)";
-    ctx.drawImage(video, 0, 0, vw, vh);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     ctx.filter = "none";
     return canvas.toDataURL("image/png");
   }, []);
@@ -609,12 +625,11 @@ export default function BoothPage() {
 
         {/* ========== CAMERA VIEW ========== */}
         <div className={view === "camera" ? "" : "hidden"}>
-          {/* Side-by-side cameras */}
           <div className="flex justify-center mb-6">
-            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[640px] flex flex-col gap-2">
-              <div className="flex gap-2 w-full">
+            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[680px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-2 w-full">
                 {/* Local Video Slot */}
-                <div className="relative flex-1 aspect-[4/3] bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden">
+                <div className="relative aspect-[4/3] bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -664,7 +679,7 @@ export default function BoothPage() {
                 </div>
 
                 {/* Partner Video Slot */}
-                <div className="relative flex-1 aspect-[4/3] bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden">
+                <div className="relative aspect-[4/3] bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden">
                   {remoteStream ? (
                     <video
                       ref={remoteVideoCallback}
@@ -833,7 +848,7 @@ export default function BoothPage() {
             </div>
 
             {/* Strip Preview — scaled to fit screen */}
-            <div className="glass-card rounded-3xl p-6 mb-6 pastel-shadow max-w-[480px] w-full">
+            <div className="glass-card rounded-3xl p-4 sm:p-6 mb-6 pastel-shadow max-w-[480px] w-full mx-auto px-4 sm:px-0">
               {isComposing ? (
                 <div className="flex items-center justify-center py-20">
                   <span className="w-10 h-10 border-4 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
@@ -850,18 +865,18 @@ export default function BoothPage() {
             </div>
 
             {/* Action Buttons */}
-            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full">
+            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full px-2">
               <button
                 onClick={handleDownload}
-                className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-gradient-to-br from-pink-400 to-pink-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
+                className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-gradient-to-br from-pink-400 to-pink-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base"
               >
-                <Download className="w-5 h-5" />
+                <Download className="w-4 h-4 sm:w-5 sm:h-5" />
                 Download
               </button>
               <button
                 onClick={handleSave}
                 disabled={isSaving || saved}
-                className={`flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all ${
+                className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base ${
                   saved
                     ? "bg-green-100 text-green-600 border border-green-200/50"
                     : "bg-gradient-to-br from-lavender-400 to-lavender-500 text-white"
@@ -873,23 +888,23 @@ export default function BoothPage() {
                   <>✓ Saved</>
                 ) : (
                   <>
-                    <Save className="w-5 h-5" />
+                    <Save className="w-4 h-4 sm:w-5 sm:h-5" />
                     Save
                   </>
                 )}
               </button>
               <button
                 onClick={handleRetake}
-                className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-white/80 hover:bg-white text-warm-gray-600 font-bold pastel-shadow hover:scale-[1.02] active:scale-95 transition-all"
+                className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-white/80 hover:bg-white text-warm-gray-600 font-bold pastel-shadow hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base"
               >
-                <RotateCcw className="w-5 h-5" />
+                <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
                 Retake
               </button>
               <button
                 onClick={handleNewSession}
-                className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-white/80 hover:bg-white text-warm-gray-600 font-bold pastel-shadow hover:scale-[1.02] active:scale-95 transition-all"
+                className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-white/80 hover:bg-white text-warm-gray-600 font-bold pastel-shadow hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
                 New Session
               </button>
             </div>
