@@ -191,28 +191,33 @@ export default function BoothPage() {
   const userName = user?.name || "Guest";
 
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const localCaptureRef = useRef<string | null>(null);
-  const partnerCaptureRef = useRef<string | null>(null);
-  const composedRef = useRef(false);
-  const frameIndexRef = useRef(0);
   const accumulatedFramesRef = useRef<string[]>([]);
-  const captureSequenceActiveRef = useRef(false);
+  const localFrameRef = useRef<string | null>(null);
+  const partnerFrameRef = useRef<string | null>(null);
+  const frameComposedRef = useRef(false);
+  const sequenceActiveRef = useRef(false);
+  const nextFrameTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const processFrameRef = useRef<(local: string, partner: string) => void>(() => {});
+  const startNextFrameRef = useRef<() => void>(() => {});
 
   const resetPhotoState = useCallback(() => {
-    setCountdown(null);
-    setSaved(false);
-    setResultImage("");
-    setCaptureCount(0);
-    setView("camera");
-    localCaptureRef.current = null;
-    partnerCaptureRef.current = null;
-    composedRef.current = false;
-    frameIndexRef.current = 0;
+    sequenceActiveRef.current = false;
     accumulatedFramesRef.current = [];
-    captureSequenceActiveRef.current = false;
+    localFrameRef.current = null;
+    partnerFrameRef.current = null;
+    frameComposedRef.current = false;
+    setCountdown(null);
+    setCaptureCount(0);
+    setResultImage("");
+    setSaved(false);
+    setView("camera");
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
+    }
+    if (nextFrameTimerRef.current) {
+      clearTimeout(nextFrameTimerRef.current);
+      nextFrameTimerRef.current = null;
     }
   }, []);
 
@@ -221,26 +226,19 @@ export default function BoothPage() {
   }, [resetPhotoState]);
 
   const handlePhotoReceivedStable = useCallback((photoData: string) => {
-    partnerCaptureRef.current = photoData;
-    if (localCaptureRef.current && !composedRef.current) {
-      composedRef.current = true;
-      composeFinalImage(localCaptureRef.current, photoData).then((img) => {
-        setResultImage(img);
-        setView("result");
-        updateSharedState({ resultImage: img, view: "result" });
-      }).catch(() => {
-        setResultImage(localCaptureRef.current || photoData);
-        setView("result");
-      });
+    partnerFrameRef.current = photoData;
+    if (localFrameRef.current && !frameComposedRef.current && sequenceActiveRef.current) {
+      frameComposedRef.current = true;
+      processFrameRef.current(localFrameRef.current, photoData);
     }
+  }, []);
+
+  const handleCaptureStartStable = useCallback((_captureStartTime: number) => {
   }, []);
 
   const handleRetakeReceivedStable = useCallback(() => {
     handleRetakeReceived();
   }, [handleRetakeReceived]);
-
-  const handleCaptureStartStable = useCallback((_captureStartTime: number) => {
-  }, []);
 
   const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
@@ -249,6 +247,92 @@ export default function BoothPage() {
     onPhotoReceived: handlePhotoReceivedStable,
     onRetakeReceived: handleRetakeReceivedStable,
     onCaptureStartReceived: handleCaptureStartStable,
+  });
+
+  const capturePhoto = (): string | null => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, vw, vh);
+    return canvas.toDataURL("image/png");
+  };
+
+  const finishSequence = useCallback(() => {
+    sequenceActiveRef.current = false;
+    setIsComposing(true);
+    composeStrip(accumulatedFramesRef.current).then((strip) => {
+      setResultImage(strip);
+      setView("result");
+      setIsComposing(false);
+      updateSharedState({ resultImage: strip, view: "result" });
+    }).catch(() => {
+      setIsComposing(false);
+    });
+  }, [updateSharedState]);
+
+  const processFrame = useCallback(async (localPhoto: string, partnerPhoto: string) => {
+    const coupleFrame = await composeFinalImage(localPhoto, partnerPhoto);
+    accumulatedFramesRef.current.push(coupleFrame);
+    const count = accumulatedFramesRef.current.length;
+    setCaptureCount(count);
+
+    if (count >= TOTAL_PHOTOS) {
+      finishSequence();
+    } else {
+      nextFrameTimerRef.current = setTimeout(() => {
+        if (sequenceActiveRef.current) {
+          startNextFrameRef.current();
+        }
+      }, 1200);
+    }
+  }, [finishSequence]);
+
+  const startNextFrame = useCallback(() => {
+    if (!sequenceActiveRef.current) return;
+
+    localFrameRef.current = null;
+    partnerFrameRef.current = null;
+    frameComposedRef.current = false;
+
+    const captureStartTime = Date.now() + 3000;
+    sendCaptureStart(captureStartTime);
+
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    countdownIntervalRef.current = setInterval(() => {
+      const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
+      if (remaining > 0) {
+        setCountdown(remaining);
+      } else {
+        setCountdown(null);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+
+        const photo = capturePhoto();
+        if (photo) {
+          localFrameRef.current = photo;
+          setFlashVisible(true);
+          setTimeout(() => setFlashVisible(false), 300);
+          sendPhoto(photo);
+
+          if (partnerFrameRef.current && !frameComposedRef.current) {
+            frameComposedRef.current = true;
+            processFrameRef.current(photo, partnerFrameRef.current);
+          }
+        }
+      }
+    }, 50);
+  }, [sendCaptureStart, sendPhoto]);
+
+  useEffect(() => {
+    processFrameRef.current = processFrame;
+    startNextFrameRef.current = startNextFrame;
   });
 
   const startCamera = useCallback(async () => {
@@ -290,86 +374,17 @@ export default function BoothPage() {
     }
   }, [remoteStream]);
 
-  const capturePhoto = (): string | null => {
-    const video = videoRef.current;
-    if (!video) return null;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    if (!vw || !vh) return null;
-    const canvas = document.createElement("canvas");
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, vw, vh);
-    return canvas.toDataURL("image/png");
-  };
-
   const startCapture = () => {
-    localCaptureRef.current = null;
-    partnerCaptureRef.current = null;
-    composedRef.current = false;
-    frameIndexRef.current = 0;
-    accumulatedFramesRef.current = [];
-    captureSequenceActiveRef.current = true;
-    setSaved(false);
-    setResultImage("");
-    setCaptureCount(0);
-    setView("camera");
-
+    resetPhotoState();
+    sequenceActiveRef.current = true;
     addTimelineActivity({
       id: `cap-${Date.now()}`,
       type: "photo_captured",
-      message: `Started a 4-photo strip session`,
+      message: "Started a 4-photo strip session",
       timestamp: new Date().toISOString(),
       user: userName,
     });
-
-    const captureStartTime = Date.now() + 3000;
-    sendCaptureStart(captureStartTime);
-
-    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    countdownIntervalRef.current = setInterval(() => {
-      const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
-      if (remaining > 0) {
-        setCountdown(remaining);
-      } else {
-        setCountdown(null);
-        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-
-        const photo = capturePhoto();
-        if (photo) {
-          localCaptureRef.current = photo;
-          setFlashVisible(true);
-          setTimeout(() => setFlashVisible(false), 300);
-          sendPhoto(photo);
-
-          if (partnerCaptureRef.current && !composedRef.current) {
-            composedRef.current = true;
-            const local = localCaptureRef.current;
-            const partner = partnerCaptureRef.current;
-            composeFinalImage(local, partner).then((coupleImg) => {
-              accumulatedFramesRef.current.push(coupleImg);
-              setCaptureCount(accumulatedFramesRef.current.length);
-
-              if (accumulatedFramesRef.current.length >= TOTAL_PHOTOS) {
-                captureSequenceActiveRef.current = false;
-                composeStrip(accumulatedFramesRef.current).then((strip) => {
-                  setResultImage(strip);
-                  setView("result");
-                  updateSharedState({ resultImage: strip, view: "result" });
-                });
-              } else {
-                localCaptureRef.current = null;
-                partnerCaptureRef.current = null;
-                composedRef.current = false;
-              }
-            });
-          }
-        }
-      }
-    }, 50);
+    startNextFrame();
   };
 
   const handleDownload = () => {
