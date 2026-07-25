@@ -13,9 +13,7 @@ import {
   VideoOff,
   Download,
   Heart,
-  Save,
   RotateCcw,
-  LogOut,
   Sparkles,
   AlertTriangle,
 } from "lucide-react";
@@ -53,46 +51,47 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   const localImg = await loadImage(localPhoto);
   const partnerImg = await loadImage(partnerPhoto);
 
-  const W = 372;
-  const H = 250;
+  const W = 400;
+  const H = 533;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) return localPhoto;
 
-  const halfW = W / 2;
+  const halfH = Math.floor(H / 2);
+  const gap = 1;
 
-  function drawHalf(img: HTMLImageElement, x: number, w: number) {
+  function drawPortrait(img: HTMLImageElement, y: number, h: number) {
     if (!ctx) return;
     const imgRatio = img.width / img.height;
-    const slotRatio = w / H;
+    const slotRatio = W / h;
     let drawW: number, drawH: number, drawX: number, drawY: number;
     if (imgRatio > slotRatio) {
-      drawW = w;
-      drawH = w / imgRatio;
-      drawX = x;
-      drawY = (H - drawH) / 2;
+      drawW = W;
+      drawH = W / imgRatio;
+      drawX = 0;
+      drawY = y + (h - drawH) / 2;
     } else {
-      drawH = H;
-      drawW = H * imgRatio;
-      drawX = x + (w - drawW) / 2;
-      drawY = 0;
+      drawH = h;
+      drawW = h * imgRatio;
+      drawX = (W - drawW) / 2;
+      drawY = y;
     }
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x, 0, w, H);
+    ctx.rect(0, y, W, h);
     ctx.clip();
     ctx.fillStyle = "#f0f0f0";
-    ctx.fillRect(x, 0, w, H);
+    ctx.fillRect(0, y, W, h);
     ctx.filter = "grayscale(1)";
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.filter = "none";
     ctx.restore();
   }
 
-  drawHalf(localImg, 0, halfW);
-  drawHalf(partnerImg, halfW, halfW);
+  drawPortrait(localImg, 0, halfH);
+  drawPortrait(partnerImg, halfH + gap, H - halfH - gap);
 
   return canvas.toDataURL("image/png");
 }
@@ -184,6 +183,79 @@ async function composeStrip(frames: string[], yourName: string, partnerNm: strin
   return canvas.toDataURL("image/png");
 }
 
+async function composeCollage(frames: string[]): Promise<string> {
+  const images = await Promise.all(frames.map((f) => loadImage(f)));
+
+  const TOTAL_W = 650;
+  const PAD = 24;
+  const GAP = 16;
+  const CELL_PAD = 8;
+  const CELL_R = 16;
+  const PHOTO_R = 14;
+  const avail = TOTAL_W - PAD * 2;
+  const cellW = (avail - GAP) / 2;
+  const photoW = cellW - CELL_PAD * 2;
+  const photoH = Math.round(photoW * 4 / 3);
+  const cellH = photoH + CELL_PAD * 2;
+  const TOTAL_H = PAD + cellH + GAP + cellH + PAD;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = TOTAL_W;
+  canvas.height = TOTAL_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return frames[0];
+
+  ctx.fillStyle = "#f5f5f5";
+  ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
+
+  const positions = [
+    { col: 0, row: 0 },
+    { col: 1, row: 0 },
+    { col: 0, row: 1 },
+    { col: 1, row: 1 },
+  ];
+
+  for (let i = 0; i < 4 && i < images.length; i++) {
+    const { col, row } = positions[i];
+    const cellX = PAD + col * (cellW + GAP);
+    const cellY = PAD + row * (cellH + GAP);
+
+    ctx.save();
+    roundRect(ctx, cellX, cellY, cellW, cellH, CELL_R);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+
+    const photoX = cellX + CELL_PAD;
+    const photoY = cellY + CELL_PAD;
+
+    ctx.beginPath();
+    roundRect(ctx, photoX, photoY, photoW, photoH, PHOTO_R);
+    ctx.clip();
+
+    const img = images[i];
+    const imgRatio = img.width / img.height;
+    const slotRatio = photoW / photoH;
+    let drawW: number, drawH: number, drawX: number, drawY: number;
+    if (imgRatio > slotRatio) {
+      drawH = photoH;
+      drawW = photoH * imgRatio;
+      drawX = photoX + (photoW - drawW) / 2;
+      drawY = photoY;
+    } else {
+      drawW = photoW;
+      drawH = photoW / imgRatio;
+      drawX = photoX;
+      drawY = photoY + (photoH - drawH) / 2;
+    }
+    ctx.filter = "grayscale(1) contrast(1.1) brightness(1.02)";
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.filter = "none";
+    ctx.restore();
+  }
+
+  return canvas.toDataURL("image/png");
+}
+
 type BoothView = "camera" | "result";
 
 const TOTAL_PHOTOS = 4;
@@ -203,7 +275,7 @@ export default function BoothPage() {
   const [isComposing, setIsComposing] = useState(false);
 
   const [view, setView] = useState<BoothView>("camera");
-  const [resultImage, setResultImage] = useState<string>("");
+  const [capturedFrames, setCapturedFrames] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
@@ -269,7 +341,7 @@ export default function BoothPage() {
     frameComposedRef.current = false;
     setCountdown(null);
     setCaptureCount(0);
-    setResultImage("");
+    setCapturedFrames([]);
     setSaved(false);
     setView("camera");
     if (countdownIntervalRef.current) {
@@ -337,14 +409,14 @@ export default function BoothPage() {
   }, [handleRetakeReceived]);
 
   const handleSharedStateUpdate = useCallback((updates: Partial<SharedState>) => {
-    if (updates.view === "result" && updates.resultImage) {
-      setResultImage(updates.resultImage);
+    if (updates.view === "result") {
+      setCapturedFrames([...accumulatedFramesRef.current]);
       setView("result");
       setIsComposing(false);
     }
     if (updates.view === "camera") {
       setView("camera");
-      setResultImage("");
+      setCapturedFrames([]);
     }
   }, []);
 
@@ -367,15 +439,11 @@ export default function BoothPage() {
   const finishSequence = useCallback(() => {
     sequenceActiveRef.current = false;
     setIsComposing(true);
-    composeStrip(accumulatedFramesRef.current, user?.name || "", partnerName).then((strip) => {
-      setResultImage(strip);
-      setView("result");
-      setIsComposing(false);
-      updateSharedState({ resultImage: strip, view: "result" });
-    }).catch(() => {
-      setIsComposing(false);
-    });
-  }, [updateSharedState, user?.name, partnerName]);
+    setCapturedFrames([...accumulatedFramesRef.current]);
+    setView("result");
+    setIsComposing(false);
+    updateSharedState({ resultImage: "collage", view: "result" });
+  }, [updateSharedState]);
 
   const processFrame = useCallback(async (localPhoto: string, partnerPhoto: string) => {
     const coupleFrame = await composeFinalImage(localPhoto, partnerPhoto);
@@ -490,24 +558,26 @@ export default function BoothPage() {
     if (captureStartTime) sendCaptureStart(captureStartTime);
   };
 
-  const handleDownload = () => {
-    if (!resultImage) return;
+  const handleDownload = async () => {
+    if (capturedFrames.length < 4) return;
+    const collage = await composeCollage(capturedFrames);
     const link = document.createElement("a");
-    link.download = `togetherframe-strip-${Date.now()}.png`;
-    link.href = resultImage;
+    link.download = `togetherframe-${Date.now()}.png`;
+    link.href = collage;
     link.click();
   };
 
   const handleSave = async () => {
-    if (!resultImage || saved) return;
+    if (capturedFrames.length < 4 || saved) return;
     setIsSaving(true);
     try {
-      await saveMemoryToAPI(roomCode, resultImage, "Our photo strip", selectedFrame);
+      const collage = await composeCollage(capturedFrames);
+      await saveMemoryToAPI(roomCode, collage, "Our photo collage", selectedFrame);
       setSaved(true);
       addGalleryItem({
         id: `gal-${Date.now()}`,
-        imageUrl: resultImage,
-        caption: "Our photo strip",
+        imageUrl: collage,
+        caption: "Our photo collage",
         frame: selectedFrame,
         createdAt: new Date().toISOString(),
         savedBy: userName,
@@ -516,8 +586,8 @@ export default function BoothPage() {
       setSaved(true);
       addGalleryItem({
         id: `gal-${Date.now()}`,
-        imageUrl: resultImage,
-        caption: "Our photo strip",
+        imageUrl: "",
+        caption: "Our photo collage",
         frame: selectedFrame,
         createdAt: new Date().toISOString(),
         savedBy: userName,
@@ -854,85 +924,89 @@ export default function BoothPage() {
           </AnimatePresence>
         </div>
 
-        {/* ========== RESULT VIEW — Vertical Strip ========== */}
+        {/* ========== RESULT VIEW — Korean Photobooth ========== */}
         {view === "result" && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
             className="flex flex-col items-center"
           >
             <div className="text-center mb-6">
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                transition={{ type: "spring", bounce: 0.5 }}
+                transition={{ type: "spring", bounce: 0.5, delay: 0.15 }}
                 className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-gradient-to-r from-pink-100 to-rose-100 border border-pink-200/50 mb-4"
               >
                 <Sparkles className="w-4 h-4 text-pink-500" />
-                <span className="text-sm font-bold text-pink-600">Strip captured!</span>
+                <span className="text-sm font-bold text-pink-600">Photos captured!</span>
               </motion.div>
-              <h2 className="text-2xl font-serif font-bold text-warm-gray-800">Your TogetherFrame Strip</h2>
+              <h2 className="text-2xl font-serif font-bold text-warm-gray-800">
+                {user?.name && partnerName ? `${user.name} & ${partnerName}` : "Your TogetherFrame"}
+              </h2>
+              <p className="text-warm-gray-400 text-sm mt-1">
+                {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+              </p>
             </div>
 
-            {/* Strip Preview — scaled to fit screen */}
-            <div className="glass-card rounded-3xl p-4 sm:p-6 mb-6 pastel-shadow max-w-[480px] w-full mx-auto px-4 sm:px-0">
-              {isComposing ? (
+            {/* 2×2 Collage Card */}
+            <div
+              className="rounded-3xl p-6 mb-8 w-full max-w-[650px] mx-auto px-4 sm:px-6"
+              style={{
+                background: "#ffffff",
+                boxShadow: "0 15px 40px rgba(0,0,0,0.15)",
+              }}
+            >
+              {capturedFrames.length >= 4 ? (
+                <div className="grid grid-cols-2 gap-4">
+                  {capturedFrames.slice(0, 4).map((frame, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.35, delay: i * 0.08 }}
+                      className="rounded-2xl p-2"
+                      style={{
+                        background: "#ffffff",
+                        boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={frame}
+                        alt={`Frame ${i + 1}`}
+                        className="w-full rounded-xl object-cover"
+                        style={{
+                          aspectRatio: "3/4",
+                          filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
+                        }}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
                 <div className="flex items-center justify-center py-20">
                   <span className="w-10 h-10 border-4 border-pink-200 border-t-pink-500 rounded-full animate-spin" />
                 </div>
-              ) : resultImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={resultImage}
-                  alt="TogetherFrame Strip"
-                  className="w-full rounded-2xl"
-                  style={{ aspectRatio: "420/1246", objectFit: "contain" }}
-                />
-              ) : null}
+              )}
             </div>
 
             {/* Action Buttons */}
-            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full px-2">
-              <button
-                onClick={handleDownload}
-                className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-gradient-to-br from-pink-400 to-pink-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base"
-              >
-                <Download className="w-4 h-4 sm:w-5 sm:h-5" />
-                Download
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving || saved}
-                className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base ${
-                  saved
-                    ? "bg-green-100 text-green-600 border border-green-200/50"
-                    : "bg-gradient-to-br from-lavender-400 to-lavender-500 text-white"
-                }`}
-              >
-                {isSaving ? (
-                  <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : saved ? (
-                  <>✓ Saved</>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 sm:w-5 sm:h-5" />
-                    Save
-                  </>
-                )}
-              </button>
+            <div className="flex items-center justify-center gap-4 w-full max-w-md mx-auto px-4">
               <button
                 onClick={handleRetake}
-                className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-white/80 hover:bg-white text-warm-gray-600 font-bold pastel-shadow hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base"
+                className="flex-1 flex items-center justify-center gap-2 h-[52px] rounded-full bg-white hover:bg-gray-50 text-warm-gray-600 font-bold shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-sm border border-gray-100"
               >
-                <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
+                <RotateCcw className="w-4 h-4" />
                 Retake
               </button>
               <button
-                onClick={handleNewSession}
-                className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-3.5 rounded-2xl bg-white/80 hover:bg-white text-warm-gray-600 font-bold pastel-shadow hover:scale-[1.02] active:scale-95 transition-all text-sm sm:text-base"
+                onClick={handleDownload}
+                className="flex-1 flex items-center justify-center gap-2 h-[52px] rounded-full bg-gradient-to-br from-pink-400 to-rose-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm"
               >
-                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
-                New Session
+                <Download className="w-4 h-4" />
+                Download Strip
               </button>
             </div>
           </motion.div>
