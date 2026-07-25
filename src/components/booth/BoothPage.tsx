@@ -180,14 +180,6 @@ export default function BoothPage() {
   const [waitingForPartner, setWaitingForPartner] = useState(false);
   const waitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handlePhotoReceived = useCallback((photoData: string) => {
-    sessionStorage.setItem("partnerPhoto", photoData);
-  }, []);
-
-  const handlePartnerPhotos = useCallback((photos: string[]) => {
-    sessionStorage.setItem("partnerPhotos", JSON.stringify(photos));
-  }, []);
-
   const resetPhotoState = useCallback(() => {
     setCapturedPhotos([]);
     setCaptureIndex(null);
@@ -206,13 +198,18 @@ export default function BoothPage() {
     resetPhotoState();
   }, [resetPhotoState]);
 
-  const { remoteStream, connected, peerCount, sendPhotos, sendRetake } = useWebRTC({
+  const handleSharedStateUpdate = useCallback((updates: Record<string, unknown>) => {
+    if (updates.partnerPhotos) {
+      sessionStorage.setItem("partnerPhotos", JSON.stringify(updates.partnerPhotos));
+    }
+  }, []);
+
+  const { remoteStream, connected, peerCount, sendPhotos, sendRetake, sharedState, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
-    onPhotoReceived: handlePhotoReceived,
-    onPhotosReceived: handlePartnerPhotos,
     onRetakeReceived: handleRetakeReceived,
+    onSharedStateUpdate: handleSharedStateUpdate,
   });
 
   const startCamera = useCallback(async () => {
@@ -325,6 +322,7 @@ export default function BoothPage() {
 
     for (let i = 0; i < TOTAL_PHOTOS; i++) {
       setCaptureIndex(i);
+      updateSharedState({ captureIndex: i });
       await new Promise<void>((resolve) => {
         let count = 3;
         setCountdown(count);
@@ -345,12 +343,14 @@ export default function BoothPage() {
       if (photo) {
         capturedPhotosRef.current = [...capturedPhotosRef.current, photo];
         setCapturedPhotos([...capturedPhotosRef.current]);
+        updateSharedState({ photos: [...capturedPhotosRef.current] });
       }
     }
     setCaptureIndex(null);
+    updateSharedState({ captureIndex: -1 });
     capturingRef.current = false;
     return [...capturedPhotosRef.current];
-  }, []);
+  }, [updateSharedState]);
 
   const showResult = useCallback(async (photos: string[]) => {
     setIsComposing(true);
@@ -360,19 +360,30 @@ export default function BoothPage() {
       const finalImg = await composeFinalImage(photos, partnerPhotosArr, selectedFrame);
       setResultImage(finalImg);
       setView("result");
+      updateSharedState({ resultImage: finalImg, view: "result" });
     } catch {
       setResultImage(photos[0]);
       setView("result");
+      updateSharedState({ resultImage: photos[0], view: "result" });
     } finally {
       setIsComposing(false);
     }
-  }, [selectedFrame]);
+  }, [selectedFrame, updateSharedState]);
 
   const startCountdown = async () => {
     sessionStorage.removeItem("partnerPhotos");
     setCapturedPhotos([]);
     setWaitingForPartner(false);
     setSaved(false);
+
+    addTimelineActivity({
+      id: `cap-${Date.now()}`,
+      type: "photo_captured",
+      message: "Started a new photo session",
+      timestamp: new Date().toISOString(),
+      user: userName,
+    });
+
     const photos = await runCaptureSequence();
     if (photos.length === 0) return;
 
@@ -414,8 +425,25 @@ export default function BoothPage() {
     try {
       await saveMemoryToAPI(roomCode, resultImage, "Our cute moment 💕", selectedFrame);
       setSaved(true);
+
+      addGalleryItem({
+        id: `gal-${Date.now()}`,
+        imageUrl: resultImage,
+        caption: "Our cute moment 💕",
+        frame: selectedFrame,
+        createdAt: new Date().toISOString(),
+        savedBy: userName,
+      });
     } catch {
       setSaved(true);
+      addGalleryItem({
+        id: `gal-${Date.now()}`,
+        imageUrl: resultImage,
+        caption: "Our cute moment 💕",
+        frame: selectedFrame,
+        createdAt: new Date().toISOString(),
+        savedBy: userName,
+      });
     } finally {
       setIsSaving(false);
     }
@@ -423,12 +451,30 @@ export default function BoothPage() {
 
   const handleRetake = () => {
     resetPhotoState();
+    updateSharedState({ photos: [], resultImage: "", view: "camera", captureIndex: -1 });
+
+    addTimelineActivity({
+      id: `ret-${Date.now()}`,
+      type: "retake",
+      message: "Retaking photos",
+      timestamp: new Date().toISOString(),
+      user: userName,
+    });
+
     if (connected) {
       sendRetake();
     }
   };
 
   const handleNewSession = () => {
+    updateSharedState({ photos: [], partnerPhotos: [], resultImage: "", view: "camera", captureIndex: -1 });
+    addTimelineActivity({
+      id: `sess-${Date.now()}`,
+      type: "session_ended",
+      message: "Session ended",
+      timestamp: new Date().toISOString(),
+      user: userName,
+    });
     stream?.getTracks().forEach((t) => t.stop());
     router.push("/room");
   };
@@ -568,7 +614,6 @@ export default function BoothPage() {
                 <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/80 backdrop-blur text-xs font-bold text-pink-500">
                   You 📷
                 </div>
-                <FrameOverlay frame={selectedFrame} side="left" />
               </div>
             </div>
 
@@ -612,14 +657,16 @@ export default function BoothPage() {
                 <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/80 backdrop-blur text-xs font-bold text-lavender-500">
                   Partner 📷
                 </div>
-                <FrameOverlay frame={selectedFrame} side="right" />
               </div>
             </div>
           </div>
 
           {/* Frame Layout Selector */}
           <div className="mb-6">
-            <FrameLayoutSelector value={frameLayout} onChange={setFrameLayout} />
+            <FrameLayoutSelector value={frameLayout} onChange={(v) => {
+              setFrameLayout(v);
+              updateSharedState({ layout: v });
+            }} />
           </div>
 
           {/* Controls */}
@@ -873,101 +920,4 @@ export default function BoothPage() {
       </div>
     </div>
   );
-}
-
-function FrameOverlay({ frame, side }: { frame: FrameType; side: "left" | "right" }) {
-  const overlayStyle = "absolute inset-0 pointer-events-none";
-
-  switch (frame) {
-    case "pink-heart":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-pink-300 rounded-3xl" />
-          <div className="absolute top-2 right-2 text-lg">💕</div>
-          <div className="absolute bottom-2 left-2 text-lg">💗</div>
-          <div className="absolute top-2 left-2 text-sm">✨</div>
-          <div className="absolute bottom-2 right-2 text-sm">🎀</div>
-        </div>
-      );
-    case "scrapbook":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-dashed border-amber-300 rounded-2xl" />
-          <div className="absolute -top-1 left-1/4 w-12 h-5 bg-amber-100/70 rotate-[-3deg] rounded" />
-          <div className="absolute top-3 right-2 text-sm">🌸</div>
-          <div className="absolute bottom-2 left-2 text-sm">📒</div>
-        </div>
-      );
-    case "miles-apart":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-blue-300 rounded-3xl" />
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-white/80 px-2 py-0.5 rounded-full text-[10px] font-bold text-blue-400">
-            Miles Apart, Together at Heart
-          </div>
-          <div className="absolute bottom-2 left-2 text-sm">🌍</div>
-          <div className="absolute bottom-2 right-2 text-sm">💕</div>
-        </div>
-      );
-    case "cloud-stars":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-blue-200 rounded-3xl" />
-          <div className="absolute top-2 right-2 text-sm">☁️</div>
-          <div className="absolute top-3 left-2 text-sm">⭐</div>
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-sm">🌙</div>
-        </div>
-      );
-    case "bear-bunny":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-amber-200 rounded-3xl" />
-          <div className="absolute top-2 left-2 text-lg">
-            {side === "left" ? "🐻" : "🐰"}
-          </div>
-          <div className="absolute bottom-2 right-2 text-lg">
-            {side === "left" ? "🐰" : "🐻"}
-          </div>
-        </div>
-      );
-    case "love-letter":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-red-200 rounded-2xl" />
-          <div className="absolute top-2 right-2 text-sm">💌</div>
-          <div className="absolute top-2 left-2 text-sm">💝</div>
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs handwriting text-red-300">
-            With love
-          </div>
-        </div>
-      );
-    case "polaroid":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-x-3 inset-y-3 border-2 border-white/60 rounded" />
-          <div className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-white/80 px-2 py-0.5 rounded text-[10px] text-gray-400">
-            TogetherFrame
-          </div>
-        </div>
-      );
-    case "photobooth-strip":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-y-0 left-0 w-2 bg-pink-200" />
-          <div className="absolute inset-y-0 right-0 w-2 bg-pink-200" />
-          <div className="absolute top-2 right-2 text-sm">📸</div>
-        </div>
-      );
-    case "same-moment":
-      return (
-        <div className={overlayStyle}>
-          <div className="absolute inset-0 border-4 border-lavender-200 rounded-3xl" />
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-white/80 px-2 py-0.5 rounded-full text-[10px] font-bold text-lavender-400">
-            Same Moment 🕐
-          </div>
-        </div>
-      );
-    default:
-      return null;
-  }
 }

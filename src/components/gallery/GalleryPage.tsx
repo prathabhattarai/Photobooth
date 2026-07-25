@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
@@ -16,6 +16,7 @@ import {
 import { useApp } from "@/lib/store";
 import { SAMPLE_MEMORIES } from "@/lib/constants";
 import FloatingElements from "@/components/ui/FloatingElements";
+import { SharedGalleryItem, TimelineActivity } from "@/lib/types";
 
 interface GalleryMemory {
   id: string;
@@ -41,9 +42,61 @@ const frameGradients: Record<string, string> = {
 
 const decorativeEmojis = ["🌸", "💕", "✨", "🎀", "🧸", "☁️", "🌺", "💫", "🌷"];
 
+const activityIcons: Record<string, string> = {
+  photo_captured: "📸",
+  session_started: "🎬",
+  memory_saved: "💾",
+  photo_deleted: "🗑️",
+  retake: "🔄",
+  frame_changed: "🖼️",
+  layout_changed: "📐",
+  session_ended: "👋",
+};
+
 export default function GalleryPage() {
-  const { memories, deleteMemoryById } = useApp();
+  const { memories, deleteMemoryById, currentRoomCode } = useApp();
   const [view, setView] = useState<"gallery" | "timeline">("gallery");
+  const [sharedGallery, setSharedGallery] = useState<SharedGalleryItem[]>([]);
+  const [sharedTimeline, setSharedTimeline] = useState<TimelineActivity[]>([]);
+
+  const roomCode = currentRoomCode || "local";
+
+  const loadSharedData = useCallback(async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("tf_token") : null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/memories/${roomCode}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        const items: SharedGalleryItem[] = data.map((m: Record<string, string>) => ({
+          id: m.id,
+          imageUrl: m.image_url,
+          caption: m.caption,
+          frame: m.frame_type,
+          createdAt: m.created_at,
+          savedBy: "partner",
+        }));
+        setSharedGallery(items);
+      }
+    } catch {}
+  }, [roomCode]);
+
+  useEffect(() => {
+    loadSharedData();
+  }, [loadSharedData]);
+
+  const handleDeleteShared = useCallback(async (id: string) => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("tf_token") : null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      await fetch(`/api/memories/${id}`, { method: "DELETE", headers });
+    } catch {}
+    setSharedGallery(prev => prev.filter(g => g.id !== id));
+    deleteMemoryById(id);
+  }, [deleteMemoryById]);
 
   const userMemories: GalleryMemory[] = memories.map((m) => ({
     id: m.id,
@@ -59,6 +112,29 @@ export default function GalleryPage() {
     isUserMemory: true,
   }));
 
+  const sharedMemories: GalleryMemory[] = sharedGallery.map((g) => ({
+    id: g.id,
+    caption: g.caption,
+    date: new Date(g.createdAt).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }),
+    frame: g.frame,
+    emoji: "📸",
+    imageUrl: g.imageUrl,
+    isUserMemory: true,
+  }));
+
+  const allIds = new Set<string>();
+  const mergedMemories: GalleryMemory[] = [];
+  for (const m of [...userMemories, ...sharedMemories]) {
+    if (!allIds.has(m.id)) {
+      allIds.add(m.id);
+      mergedMemories.push(m);
+    }
+  }
+
   const sampleMemories: GalleryMemory[] = SAMPLE_MEMORIES.map((m) => ({
     id: m.id,
     caption: m.caption,
@@ -67,7 +143,11 @@ export default function GalleryPage() {
     emoji: m.emoji,
   }));
 
-  const allMemories = [...userMemories, ...sampleMemories];
+  const allMemories = [...mergedMemories, ...sampleMemories];
+
+  const allTimeline: TimelineActivity[] = [...sharedTimeline].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
 
   const handleDownload = (mem: GalleryMemory) => {
     if (mem.imageUrl) {
@@ -142,7 +222,7 @@ export default function GalleryPage() {
         </motion.div>
 
         {/* Empty State */}
-        {allMemories.length === 0 && (
+        {allMemories.length === 0 && view === "gallery" && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -249,7 +329,7 @@ export default function GalleryPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteMemoryById(mem.id);
+                            handleDeleteShared(mem.id);
                           }}
                           className="w-7 h-7 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow"
                         >
@@ -264,7 +344,7 @@ export default function GalleryPage() {
           )}
 
           {/* Timeline View */}
-          {view === "timeline" && allMemories.length > 0 && (
+          {view === "timeline" && (
             <motion.div
               key="timeline"
               initial={{ opacity: 0 }}
@@ -274,84 +354,58 @@ export default function GalleryPage() {
             >
               <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-rose-200 via-gold/30 to-rose-200 hidden md:block" />
 
-              <div className="space-y-12">
-                {allMemories.map((mem, i) => (
-                  <motion.div
-                    key={mem.id}
-                    initial={{ opacity: 0, x: i % 2 === 0 ? -30 : 30 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.1 }}
-                    className={`relative flex flex-col md:flex-row items-center gap-6 ${
-                      i % 2 === 0 ? "md:flex-row" : "md:flex-row-reverse"
-                    }`}
-                  >
-                    <div
-                      className={`w-full md:w-5/12 ${
-                        i % 2 === 0 ? "md:text-right" : "md:text-left"
+              {allTimeline.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-5xl mb-4">💌</div>
+                  <p className="text-warm-gray-400 text-sm">No activities yet. Start capturing moments together!</p>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {allTimeline.map((activity, i) => (
+                    <motion.div
+                      key={activity.id}
+                      initial={{ opacity: 0, x: i % 2 === 0 ? -30 : 30 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className={`relative flex flex-col md:flex-row items-center gap-4 ${
+                        i % 2 === 0 ? "md:flex-row" : "md:flex-row-reverse"
                       }`}
                     >
-                      <div className="glass-card rounded-2xl p-5 inline-block max-w-sm hover:scale-105 transition-transform duration-300 group relative">
-                        <div
-                          className={`aspect-[4/3] rounded-xl mb-3 bg-gradient-to-br ${
-                            frameGradients[mem.frame] || "from-rose-100 to-rose-200"
-                          } flex items-center justify-center overflow-hidden relative`}
-                        >
-                          {mem.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={mem.imageUrl}
-                              alt={mem.caption}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="text-5xl">{mem.emoji}</div>
-                          )}
-                        </div>
-                        <p className="font-serif font-bold text-warm-gray-600 text-sm">
-                          {mem.caption}
-                        </p>
-                        <p className="text-warm-gray-400 text-xs mt-1">{mem.date}</p>
-
-                        <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {mem.isUserMemory && mem.imageUrl && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownload(mem);
-                              }}
-                              className="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center shadow"
-                            >
-                              <Download className="w-3 h-3 text-blue-400" />
-                            </button>
-                          )}
-                          {mem.isUserMemory && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteMemoryById(mem.id);
-                              }}
-                              className="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center shadow"
-                            >
-                              <Trash2 className="w-3 h-3 text-rose-400" />
-                            </button>
-                          )}
+                      <div className={`w-full md:w-5/12 ${i % 2 === 0 ? "md:text-right" : "md:text-left"}`}>
+                        <div className="glass-card rounded-2xl p-4 inline-block max-w-sm hover:scale-105 transition-transform duration-300">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-2xl">{activityIcons[activity.type] || "📌"}</span>
+                            <div>
+                              <p className="font-serif font-bold text-warm-gray-600 text-sm">
+                                {activity.message}
+                              </p>
+                              <p className="text-warm-gray-400 text-xs mt-0.5">
+                                by {activity.user}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="text-warm-gray-300 text-xs">
+                            {new Date(activity.timestamp).toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </p>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="hidden md:flex w-2/12 justify-center">
-                      <div className="w-10 h-10 rounded-full bg-white border-2 border-rose-200 flex items-center justify-center z-10">
-                        <Heart
-                          className="w-4 h-4 text-rose-400"
-                          fill="currentColor"
-                        />
+                      <div className="hidden md:flex w-2/12 justify-center">
+                        <div className="w-10 h-10 rounded-full bg-white border-2 border-rose-200 flex items-center justify-center z-10">
+                          <Heart className="w-4 h-4 text-rose-400" fill="currentColor" />
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="hidden md:block w-5/12" />
-                  </motion.div>
-                ))}
-              </div>
+                      <div className="hidden md:block w-5/12" />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { SharedState, SharedGalleryItem, TimelineActivity, FrameType, FrameLayoutType } from "@/lib/types";
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -15,6 +16,18 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.voipbuster.com" },
 ];
 
+const DEFAULT_SHARED_STATE: SharedState = {
+  photos: [],
+  partnerPhotos: [],
+  gallery: [],
+  timeline: [],
+  frame: "polaroid",
+  layout: "1x4",
+  captureIndex: -1,
+  resultImage: "",
+  view: "camera",
+};
+
 interface UseWebRTCProps {
   roomCode: string;
   userName: string;
@@ -22,12 +35,14 @@ interface UseWebRTCProps {
   onPhotoReceived?: (photoDataUrl: string) => void;
   onPhotosReceived?: (photos: string[]) => void;
   onRetakeReceived?: () => void;
+  onSharedStateUpdate?: (updates: Partial<SharedState>) => void;
 }
 
-export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived, onRetakeReceived }: UseWebRTCProps) {
+export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived, onRetakeReceived, onSharedStateUpdate }: UseWebRTCProps) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connected, setConnected] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
+  const [sharedState, setSharedState] = useState<SharedState>(DEFAULT_SHARED_STATE);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -51,6 +66,9 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const onRetakeReceivedRef = useRef(onRetakeReceived);
   onRetakeReceivedRef.current = onRetakeReceived;
+
+  const onSharedStateUpdateRef = useRef(onSharedStateUpdate);
+  onSharedStateUpdateRef.current = onSharedStateUpdate;
 
   const destroyPC = useCallback(() => {
     if (pcRef.current) {
@@ -84,6 +102,29 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const sendRetake = useCallback(() => {
     sendWs({ type: "retake", peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const updateSharedState = useCallback((updates: Partial<SharedState>) => {
+    setSharedState(prev => {
+      const next = { ...prev, ...updates };
+      return next;
+    });
+    sendWs({ type: "state_update", updates, peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const addGalleryItem = useCallback((item: SharedGalleryItem) => {
+    setSharedState(prev => ({ ...prev, gallery: [item, ...prev.gallery] }));
+    sendWs({ type: "gallery_add", item, peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const deleteGalleryItem = useCallback((memoryId: string) => {
+    setSharedState(prev => ({ ...prev, gallery: prev.gallery.filter(g => g.id !== memoryId) }));
+    sendWs({ type: "gallery_delete", memoryId, timestamp: new Date().toISOString(), peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const addTimelineActivity = useCallback((activity: TimelineActivity) => {
+    setSharedState(prev => ({ ...prev, timeline: [activity, ...prev.timeline] }));
+    sendWs({ type: "timeline_add", activity, peerId: peerIdRef.current });
   }, [sendWs]);
 
   const createAndSendOffer = useCallback(async (pc: RTCPeerConnection) => {
@@ -223,6 +264,48 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
         msg = JSON.parse(event.data);
       } catch { return; }
 
+      if (msg.type === "state_sync") {
+        const incoming = msg.state as Partial<SharedState>;
+        setSharedState(prev => ({ ...prev, ...incoming }));
+        onSharedStateUpdateRef.current?.(incoming);
+      }
+
+      if (msg.type === "state_update" && msg.peerId !== peerIdRef.current) {
+        const updates = msg.updates as Partial<SharedState>;
+        setSharedState(prev => ({ ...prev, ...updates }));
+        onSharedStateUpdateRef.current?.(updates);
+      }
+
+      if (msg.type === "gallery_add" && msg.peerId !== peerIdRef.current) {
+        const item = msg.item as SharedGalleryItem;
+        const activity = msg.activity as TimelineActivity;
+        setSharedState(prev => ({
+          ...prev,
+          gallery: [item, ...prev.gallery],
+          timeline: activity ? [activity, ...prev.timeline] : prev.timeline,
+        }));
+        onSharedStateUpdateRef.current?.({ gallery: [item] });
+      }
+
+      if (msg.type === "gallery_delete" && msg.peerId !== peerIdRef.current) {
+        const memoryId = msg.memoryId as string;
+        const activity = msg.activity as TimelineActivity;
+        setSharedState(prev => ({
+          ...prev,
+          gallery: prev.gallery.filter(g => g.id !== memoryId),
+          timeline: activity ? [activity, ...prev.timeline] : prev.timeline,
+        }));
+        onSharedStateUpdateRef.current?.({ gallery: [] });
+      }
+
+      if (msg.type === "timeline_add" && msg.peerId !== peerIdRef.current) {
+        const activity = msg.activity as TimelineActivity;
+        setSharedState(prev => ({
+          ...prev,
+          timeline: [activity, ...prev.timeline],
+        }));
+      }
+
       if (msg.type === "existing_members") {
         const hasExisting = msg.has_existing as boolean;
         setPeerCount(msg.member_count as number);
@@ -348,5 +431,9 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
     }
   }, [localStream, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
-  return { remoteStream, connected, peerCount, sendPhoto, sendPhotos, sendRetake };
+  return {
+    remoteStream, connected, peerCount,
+    sendPhoto, sendPhotos, sendRetake,
+    sharedState, updateSharedState, addGalleryItem, deleteGalleryItem, addTimelineActivity,
+  };
 }

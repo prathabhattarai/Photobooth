@@ -88,3 +88,32 @@ export interface CapturedPhoto {
   dataUrl: string;
   timestamp: number;
 }
+
+export interface SharedGalleryItem {
+  id: string;
+  imageUrl: string;
+  caption: string;
+  frame: FrameType;
+  createdAt: string;
+  savedBy: string;
+}
+
+export interface TimelineActivity {
+  id: string;
+  type: "photo_captured" | "session_started" | "memory_saved" | "photo_deleted" | "retake" | "frame_changed" | "layout_changed" | "session_ended";
+  message: string;
+  timestamp: string;
+  user: string;
+}
+
+export interface SharedState {
+  photos: string[];
+  partnerPhotos: string[];
+  gallery: SharedGalleryItem[];
+  timeline: TimelineActivity[];
+  frame: FrameType;
+  layout: FrameLayoutType;
+  captureIndex: number;
+  resultImage: string;
+  view: string;
+}
