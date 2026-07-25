@@ -14,46 +14,37 @@ import {
   LogIn,
   Mail,
   Lock,
-  User,
   LogOut,
   ChevronRight,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import FloatingElements from "@/components/ui/FloatingElements";
-import AvatarUploader from "@/components/ui/AvatarUploader";
 import * as api from "@/lib/api";
 
 type Step = "choose" | "create" | "join" | "created" | "signin";
 
 export default function RoomPage() {
   const router = useRouter();
-  const { user, setUser, setCurrentRoomCode, setPartnerAvatar, logout } = useApp();
+  const { user, setUser, setCurrentRoomCode, logout } = useApp();
   const [step, setStep] = useState<Step>(user ? "choose" : "signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [roomCode, setRoomCode] = useState("");
-  const [selectedAvatar, setSelectedAvatar] = useState<string | null>(user?.avatar || null);
-  const [partnerAvatarInput, setPartnerAvatarInput] = useState<string | null>(null);
   const [generatedCode, setGeneratedCode] = useState("");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const savePartnerAvatar = () => {
-    if (partnerAvatarInput) setPartnerAvatar(partnerAvatarInput);
-  };
-
   const handleCreate = async () => {
     if (!name.trim()) return;
     setLoading(true);
     setError("");
-    const avatarUrl = selectedAvatar || "";
+    const avatarUrl = user?.avatar || "";
     try {
       const data = await api.createRoom(name, avatarUrl);
       setGeneratedCode(data.room_code);
       setCurrentRoomCode(data.room_code);
-      savePartnerAvatar();
       setStep("created");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Could not create room. Is the server running?");
@@ -66,12 +57,11 @@ export default function RoomPage() {
     if (!name.trim() || !roomCode.trim()) return;
     setLoading(true);
     setError("");
-    const avatarUrl = selectedAvatar || "";
+    const avatarUrl = user?.avatar || "";
     let joinFailed = false;
     try {
       const data = await api.joinRoom(roomCode, name, avatarUrl);
       setCurrentRoomCode(data.room_code || roomCode.toUpperCase());
-      savePartnerAvatar();
     } catch (err: unknown) {
       joinFailed = true;
       setError(err instanceof Error ? err.message : "Could not join room. Check the code and try again.");
@@ -89,7 +79,6 @@ export default function RoomPage() {
       await api.login(email, password);
       const u = api.getUser();
       setUser(u);
-      savePartnerAvatar();
       setStep("choose");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Invalid email or password");
@@ -106,7 +95,6 @@ export default function RoomPage() {
 
   const handleLogout = () => {
     logout();
-    setSelectedAvatar(null);
     setName("");
     setEmail("");
     setPassword("");
@@ -338,21 +326,6 @@ export default function RoomPage() {
                   />
                 </div>
 
-                <div className="flex justify-center gap-8 mb-8">
-                  <AvatarUploader
-                    value={selectedAvatar}
-                    onChange={(img) => setSelectedAvatar(img)}
-                    size="lg"
-                    label="Your Photo"
-                  />
-                  <AvatarUploader
-                    value={partnerAvatarInput}
-                    onChange={(img) => setPartnerAvatarInput(img)}
-                    size="lg"
-                    label="Partner's Photo"
-                  />
-                </div>
-
                 <button
                   onClick={handleCreate}
                   disabled={!name.trim() || loading}
@@ -423,15 +396,6 @@ export default function RoomPage() {
                     placeholder="What should we call you?"
                     className="cute-input"
                     maxLength={20}
-                  />
-                </div>
-
-                <div className="mb-8 flex justify-center">
-                  <AvatarUploader
-                    value={selectedAvatar}
-                    onChange={(img) => setSelectedAvatar(img)}
-                    size="lg"
-                    label="Your Photo"
                   />
                 </div>
 

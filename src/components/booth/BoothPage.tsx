@@ -49,43 +49,29 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-const FRAME_BG: Record<FrameType, [string, string]> = {
-  polaroid: ["#f9fafb", "#f3f4f6"],
-  "photobooth-strip": ["#fff1f2", "#ffe4e6"],
-  scrapbook: ["#fffbeb", "#fef3c7"],
-  "pink-heart": ["#fce7f3", "#ffe4e6"],
-  "miles-apart": ["#eff6ff", "#ecfeff"],
-  "cloud-stars": ["#eff6ff", "#e0e7ff"],
-  "bear-bunny": ["#fef3c7", "#ffedd5"],
-  "love-letter": ["#fef2f2", "#fce7f3"],
-  "same-moment": ["#faf5ff", "#f3e8ff"],
-};
+async function composeFinalImage(localPhoto: string, partnerPhoto: string): Promise<string> {
+  const localImg = await loadImage(localPhoto);
+  const partnerImg = await loadImage(partnerPhoto);
 
-async function composeFinalImage(localPhotos: string[], partnerPhotos: string[], frame: FrameType): Promise<string> {
-  const localImgs = await Promise.all(localPhotos.map(loadImage));
-  const partnerImgs = partnerPhotos.length > 0 ? await Promise.all(partnerPhotos.map(loadImage)) : [];
-
-  const W = 800;
-  const H = 600;
+  const W = 600;
+  const H = 800;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return localPhotos[0] || "";
+  if (!ctx) return localPhoto;
 
-  const [c1, c2] = FRAME_BG[frame] || ["#fff", "#f9fafb"];
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, c1);
-  grad.addColorStop(1, c2);
-  ctx.fillStyle = grad;
-  roundRect(ctx, 0, 0, W, H, 20);
-  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
 
-  function drawSlot(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
+  const PAD = 30;
+  const GAP = 20;
+  const TEXT_AREA = 60;
+  const photoW = W - PAD * 2;
+  const photoH = (H - PAD * 2 - GAP - TEXT_AREA) / 2;
+
+  function drawPhoto(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
     if (!ctx) return;
-    ctx.save();
-    roundRect(ctx, x, y, w, h, 10);
-    ctx.clip();
     const imgRatio = img.width / img.height;
     const slotRatio = w / h;
     let drawW: number, drawH: number, drawX: number, drawY: number;
@@ -100,58 +86,22 @@ async function composeFinalImage(localPhotos: string[], partnerPhotos: string[],
       drawX = x + (w - drawW) / 2;
       drawY = y;
     }
-    ctx.fillStyle = "#f9fafb";
+    ctx.save();
+    roundRect(ctx, x, y, w, h, 12);
+    ctx.clip();
+    ctx.fillStyle = "#f0f0f0";
     ctx.fillRect(x, y, w, h);
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.restore();
   }
 
-  const PAD = 30;
-  const GAP = 10;
+  drawPhoto(localImg, PAD, PAD, photoW, photoH);
+  drawPhoto(partnerImg, PAD, PAD + photoH + GAP, photoW, photoH);
 
-  if (partnerImgs.length > 0) {
-    if (frame === "photobooth-strip") {
-      const colW = (W - PAD * 2 - GAP) / 2;
-      const slotH = (H - PAD * 2 - GAP * 3) / 4;
-      for (let i = 0; i < Math.min(4, localImgs.length); i++) {
-        drawSlot(localImgs[i], PAD, PAD + i * (slotH + GAP), colW, slotH);
-      }
-      for (let i = 0; i < Math.min(4, partnerImgs.length); i++) {
-        drawSlot(partnerImgs[i], PAD + colW + GAP, PAD + i * (slotH + GAP), colW, slotH);
-      }
-    } else {
-      const gridW = (W - PAD * 2 - GAP) / 2;
-      const gridH = (H - PAD * 2 - GAP) / 2;
-      const positions = [
-        [PAD, PAD], [PAD + gridW + GAP, PAD],
-        [PAD, PAD + gridH + GAP], [PAD + gridW + GAP, PAD + gridH + GAP],
-      ];
-      for (let i = 0; i < 4; i++) {
-        const li = i < localImgs.length ? localImgs[i] : localImgs[0];
-        const pi = i < partnerImgs.length ? partnerImgs[i] : partnerImgs[0];
-        drawSlot(i % 2 === 0 ? li : pi, positions[i][0], positions[i][1], gridW, gridH);
-      }
-    }
-  } else {
-    if (localImgs.length === 1) {
-      drawSlot(localImgs[0], PAD, PAD, W - PAD * 2, H - PAD * 2);
-    } else if (localImgs.length <= 2) {
-      const slotW = (W - PAD * 2 - GAP) / 2;
-      for (let i = 0; i < localImgs.length; i++) {
-        drawSlot(localImgs[i], PAD + i * (slotW + GAP), PAD, slotW, H - PAD * 2);
-      }
-    } else {
-      const gridW = (W - PAD * 2 - GAP) / 2;
-      const gridH = (H - PAD * 2 - GAP) / 2;
-      const positions = [
-        [PAD, PAD], [PAD + gridW + GAP, PAD],
-        [PAD, PAD + gridH + GAP], [PAD + gridW + GAP, PAD + gridH + GAP],
-      ];
-      for (let i = 0; i < Math.min(4, localImgs.length); i++) {
-        drawSlot(localImgs[i], positions[i][0], positions[i][1], gridW, gridH);
-      }
-    }
-  }
+  ctx.fillStyle = "#bbbbbb";
+  ctx.font = "13px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText("TogetherFrame", W / 2, H - 25);
 
   return canvas.toDataURL("image/png");
 }
@@ -170,11 +120,8 @@ export default function BoothPage() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
-  const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
-  const [captureIndex, setCaptureIndex] = useState<number | null>(null);
   const [flashVisible, setFlashVisible] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
-  const captureTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [view, setView] = useState<BoothView>("camera");
   const [resultImage, setResultImage] = useState<string>("");
@@ -184,26 +131,24 @@ export default function BoothPage() {
   const roomCode = currentRoomCode || "local";
   const userName = user?.name || "Guest";
 
-  const TOTAL_PHOTOS = 4;
-  const capturingRef = useRef(false);
-  const capturedPhotosRef = useRef<string[]>([]);
+  const countdownTargetRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [waitingForPartner, setWaitingForPartner] = useState(false);
-  const waitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const partnerPhotosRef = useRef<string[]>([]);
+  const localCaptureRef = useRef<string | null>(null);
+  const partnerCaptureRef = useRef<string | null>(null);
   const composedRef = useRef(false);
 
   const resetPhotoState = useCallback(() => {
-    setCapturedPhotos([]);
-    setCaptureIndex(null);
-    setWaitingForPartner(false);
+    setCountdown(null);
     setSaved(false);
     setResultImage("");
     setView("camera");
+    localCaptureRef.current = null;
+    partnerCaptureRef.current = null;
     composedRef.current = false;
-    if (waitTimeoutRef.current) {
-      clearTimeout(waitTimeoutRef.current);
-      waitTimeoutRef.current = null;
+    countdownTargetRef.current = null;
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
     }
   }, []);
 
@@ -211,16 +156,99 @@ export default function BoothPage() {
     resetPhotoState();
   }, [resetPhotoState]);
 
-  const { remoteStream, connected, peerCount, sendRetake, sharedState, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
+  const composeAndShowRef = useRef<(local: string, partner: string) => void>(() => {});
+  const handlePhotoReceivedInnerRef = useRef<(photoData: string) => void>(() => {});
+  const handleCaptureStartInnerRef = useRef<(captureStartTime: number) => void>(() => {});
+
+  const handlePhotoReceivedStable = useCallback((photoData: string) => {
+    handlePhotoReceivedInnerRef.current(photoData);
+  }, []);
+
+  const handleRetakeReceivedStable = useCallback(() => {
+    handleRetakeReceived();
+  }, [handleRetakeReceived]);
+
+  const handleCaptureStartStable = useCallback((captureStartTime: number) => {
+    handleCaptureStartInnerRef.current(captureStartTime);
+  }, []);
+
+  const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
-    onRetakeReceived: handleRetakeReceived,
+    onPhotoReceived: handlePhotoReceivedStable,
+    onRetakeReceived: handleRetakeReceivedStable,
+    onCaptureStartReceived: handleCaptureStartStable,
   });
 
-  useEffect(() => {
-    partnerPhotosRef.current = sharedState.partnerPhotos;
-  }, [sharedState.partnerPhotos]);
+  const composeAndShow = useCallback(async (local: string, partner: string) => {
+    if (composedRef.current) return;
+    composedRef.current = true;
+    setIsComposing(true);
+    try {
+      const finalImg = await composeFinalImage(local, partner);
+      setResultImage(finalImg);
+      setView("result");
+      updateSharedState({ resultImage: finalImg, view: "result" });
+    } catch {
+      setResultImage(local);
+      setView("result");
+      updateSharedState({ resultImage: local, view: "result" });
+    } finally {
+      setIsComposing(false);
+    }
+  }, [updateSharedState]);
+
+  const capturePhoto = (): string | null => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, vw, vh);
+    return canvas.toDataURL("image/png");
+  };
+
+  const handlePhotoReceivedInner = useCallback((photoData: string) => {
+    partnerCaptureRef.current = photoData;
+    if (localCaptureRef.current && !composedRef.current) {
+      composeAndShowRef.current(localCaptureRef.current, photoData);
+    }
+  }, []);
+
+  const handleCaptureStartInner = useCallback((captureStartTime: number) => {
+    countdownTargetRef.current = captureStartTime;
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    countdownIntervalRef.current = setInterval(() => {
+      const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
+      if (remaining > 0) {
+        setCountdown(remaining);
+      } else {
+        setCountdown(null);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+        const photo = capturePhoto();
+        if (photo) {
+          localCaptureRef.current = photo;
+          setFlashVisible(true);
+          setTimeout(() => setFlashVisible(false), 300);
+          sendPhoto(photo);
+          if (partnerCaptureRef.current && !composedRef.current) {
+            composeAndShowRef.current(photo, partnerCaptureRef.current);
+          }
+        }
+      }
+    }, 50);
+  }, [sendPhoto]);
+
+  useEffect(() => { composeAndShowRef.current = composeAndShow; }, [composeAndShow]);
+  useEffect(() => { handlePhotoReceivedInnerRef.current = handlePhotoReceivedInner; }, [handlePhotoReceivedInner]);
+  useEffect(() => { handleCaptureStartInnerRef.current = handleCaptureStartInner; }, [handleCaptureStartInner]);
 
   const startCamera = useCallback(async () => {
     try {
@@ -259,11 +287,9 @@ export default function BoothPage() {
   useEffect(() => {
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
-      if (captureTimerRef.current) clearTimeout(captureTimerRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (stream && videoRef.current) {
@@ -278,88 +304,13 @@ export default function BoothPage() {
     }
   }, [remoteStream]);
 
-  const capturePhoto = (): string | null => {
-    const video = videoRef.current;
-    if (!video) return null;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    if (!vw || !vh) return null;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.drawImage(video, 0, 0, vw, vh);
-    return canvas.toDataURL("image/png");
-  };
-
-  const flash = () => {
-    setFlashVisible(true);
-    setTimeout(() => setFlashVisible(false), 300);
-  };
-
-  const runCaptureSequence = useCallback(async () => {
-    if (capturingRef.current) return [];
-    capturingRef.current = true;
-    capturedPhotosRef.current = [];
-
-    for (let i = 0; i < TOTAL_PHOTOS; i++) {
-      setCaptureIndex(i);
-      updateSharedState({ captureIndex: i });
-      await new Promise<void>((resolve) => {
-        let count = 3;
-        setCountdown(count);
-        countdownIntervalRef.current = setInterval(() => {
-          count--;
-          if (count > 0) {
-            setCountdown(count);
-          } else {
-            if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = null;
-            setCountdown(null);
-            resolve();
-          }
-        }, 1000);
-      });
-      flash();
-      const photo = capturePhoto();
-      if (photo) {
-        capturedPhotosRef.current = [...capturedPhotosRef.current, photo];
-        setCapturedPhotos([...capturedPhotosRef.current]);
-        updateSharedState({ photos: [...capturedPhotosRef.current] });
-      }
-    }
-    setCaptureIndex(null);
-    updateSharedState({ captureIndex: -1 });
-    capturingRef.current = false;
-    return [...capturedPhotosRef.current];
-  }, [updateSharedState]);
-
-  const showResult = useCallback(async (photos: string[]) => {
-    setIsComposing(true);
-    composedRef.current = true;
-    try {
-      const partnerPhotosArr = partnerPhotosRef.current;
-      const finalImg = await composeFinalImage(photos, partnerPhotosArr, selectedFrame);
-      setResultImage(finalImg);
-      setView("result");
-      updateSharedState({ resultImage: finalImg, view: "result" });
-    } catch {
-      setResultImage(photos[0]);
-      setView("result");
-      updateSharedState({ resultImage: photos[0], view: "result" });
-    } finally {
-      setIsComposing(false);
-    }
-  }, [selectedFrame, updateSharedState]);
-
-  const startCountdown = async () => {
+  const startCapture = () => {
+    localCaptureRef.current = null;
+    partnerCaptureRef.current = null;
     composedRef.current = false;
-    setCapturedPhotos([]);
-    setWaitingForPartner(false);
     setSaved(false);
+    setResultImage("");
+    setView("camera");
 
     addTimelineActivity({
       id: `cap-${Date.now()}`,
@@ -369,27 +320,32 @@ export default function BoothPage() {
       user: userName,
     });
 
-    const photos = await runCaptureSequence();
-    if (photos.length === 0) return;
+    const captureStartTime = Date.now() + 3000;
+    countdownTargetRef.current = captureStartTime;
+    sendCaptureStart(captureStartTime);
 
-    if (connected) {
-      setWaitingForPartner(true);
-      waitTimeoutRef.current = setTimeout(() => {
-        setWaitingForPartner(false);
-        showResult(capturedPhotosRef.current);
-      }, 15000);
-    } else {
-      showResult(photos);
-    }
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    countdownIntervalRef.current = setInterval(() => {
+      const remaining = Math.ceil((captureStartTime - Date.now()) / 1000);
+      if (remaining > 0) {
+        setCountdown(remaining);
+      } else {
+        setCountdown(null);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+        const photo = capturePhoto();
+        if (photo) {
+          localCaptureRef.current = photo;
+          setFlashVisible(true);
+          setTimeout(() => setFlashVisible(false), 300);
+          sendPhoto(photo);
+          if (partnerCaptureRef.current && !composedRef.current) {
+            composeAndShow(photo, partnerCaptureRef.current);
+          }
+        }
+      }
+    }, 50);
   };
-
-  useEffect(() => {
-    if (waitingForPartner && sharedState.partnerPhotos.length > 0 && capturedPhotosRef.current.length > 0 && !composedRef.current) {
-      if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
-      setWaitingForPartner(false);
-      showResult(capturedPhotosRef.current);
-    }
-  }, [waitingForPartner, sharedState.partnerPhotos, showResult]);
 
   const handleDownload = () => {
     if (!resultImage) return;
@@ -403,13 +359,12 @@ export default function BoothPage() {
     if (!resultImage || saved) return;
     setIsSaving(true);
     try {
-      await saveMemoryToAPI(roomCode, resultImage, "Our cute moment 💕", selectedFrame);
+      await saveMemoryToAPI(roomCode, resultImage, "Our cute moment", selectedFrame);
       setSaved(true);
-
       addGalleryItem({
         id: `gal-${Date.now()}`,
         imageUrl: resultImage,
-        caption: "Our cute moment 💕",
+        caption: "Our cute moment",
         frame: selectedFrame,
         createdAt: new Date().toISOString(),
         savedBy: userName,
@@ -419,7 +374,7 @@ export default function BoothPage() {
       addGalleryItem({
         id: `gal-${Date.now()}`,
         imageUrl: resultImage,
-        caption: "Our cute moment 💕",
+        caption: "Our cute moment",
         frame: selectedFrame,
         createdAt: new Date().toISOString(),
         savedBy: userName,
@@ -431,8 +386,7 @@ export default function BoothPage() {
 
   const handleRetake = () => {
     resetPhotoState();
-    updateSharedState({ photos: [], resultImage: "", view: "camera", captureIndex: -1 });
-
+    updateSharedState({ resultImage: "", view: "camera" });
     addTimelineActivity({
       id: `ret-${Date.now()}`,
       type: "retake",
@@ -440,14 +394,12 @@ export default function BoothPage() {
       timestamp: new Date().toISOString(),
       user: userName,
     });
-
-    if (connected) {
-      sendRetake();
-    }
+    if (connected) sendRetake();
   };
 
   const handleNewSession = () => {
-    updateSharedState({ photos: [], partnerPhotos: [], resultImage: "", view: "camera", captureIndex: -1 });
+    resetPhotoState();
+    updateSharedState({ resultImage: "", view: "camera" });
     addTimelineActivity({
       id: `sess-${Date.now()}`,
       type: "session_ended",
@@ -477,7 +429,7 @@ export default function BoothPage() {
     }
   };
 
-  const isCapturing = captureIndex !== null;
+  const isCapturing = countdown !== null;
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -670,7 +622,7 @@ export default function BoothPage() {
 
             {/* Capture Button */}
             <button
-              onClick={startCountdown}
+              onClick={startCapture}
               disabled={isCapturing || isComposing}
               className="relative group"
             >
@@ -697,79 +649,11 @@ export default function BoothPage() {
             <div className="w-12 h-12" />
           </div>
 
-          {/* Capture progress thumbnails */}
-          <AnimatePresence>
-            {capturedPhotos.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex items-center justify-center gap-3 mb-4"
-              >
-                {Array.from({ length: TOTAL_PHOTOS }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`relative w-16 h-12 rounded-lg overflow-hidden border-2 transition-all duration-300 ${
-                      i < capturedPhotos.length
-                        ? "border-pink-400 shadow-md shadow-pink-100"
-                        : i === captureIndex
-                        ? "border-pink-300 border-dashed animate-pulse"
-                        : "border-warm-gray-100"
-                    }`}
-                  >
-                    {i < capturedPhotos.length ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={capturedPhotos[i]} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-white/40">
-                        <span className="text-[10px] font-bold text-warm-gray-300">{i + 1}</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Capture progress text */}
-          {isCapturing && captureIndex !== null && (
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-warm-gray-400 font-medium mb-4">
-              Photo {captureIndex + 1} of {TOTAL_PHOTOS}
-            </motion.p>
-          )}
-
           {isComposing && (
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center text-sm text-rose-400 font-medium mb-4">
               Composing your photo...
             </motion.p>
           )}
-
-          {/* Waiting for partner */}
-          <AnimatePresence>
-            {waitingForPartner && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-3 mb-4"
-              >
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-champagne/50 border border-gold/20">
-                  <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-                  <span className="text-sm text-warm-gray-500 font-medium">Photo sent! Waiting for partner...</span>
-                </div>
-                <button
-                  onClick={() => {
-                    if (waitTimeoutRef.current) clearTimeout(waitTimeoutRef.current);
-                    setWaitingForPartner(false);
-                    showResult(capturedPhotosRef.current);
-                  }}
-                  className="text-xs text-warm-gray-400 underline hover:text-warm-gray-600 transition-colors"
-                >
-                  Continue without partner&apos;s photo
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Flash overlay */}
           <AnimatePresence>
@@ -803,11 +687,7 @@ export default function BoothPage() {
                 >
                   <div className="text-9xl font-black text-white drop-shadow-lg">{countdown}</div>
                   <p className="text-xl text-white/80 mt-4 handwriting">
-                    {countdown === 1
-                      ? isCapturing
-                        ? `Say cheese! 📸 (${(captureIndex ?? 0) + 1}/${TOTAL_PHOTOS})`
-                        : "Smile! 📸"
-                      : "Get ready..."}
+                    {countdown === 1 ? "Say cheese!" : "Get ready..."}
                   </p>
                 </motion.div>
               </motion.div>

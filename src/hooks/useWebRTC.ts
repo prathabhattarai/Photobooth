@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { SharedState, SharedGalleryItem, TimelineActivity, FrameType, FrameLayoutType } from "@/lib/types";
+import { SharedState, SharedGalleryItem, TimelineActivity } from "@/lib/types";
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -36,9 +36,10 @@ interface UseWebRTCProps {
   onPhotosReceived?: (photos: string[]) => void;
   onRetakeReceived?: () => void;
   onSharedStateUpdate?: (updates: Partial<SharedState>) => void;
+  onCaptureStartReceived?: (captureStartTime: number) => void;
 }
 
-export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived, onRetakeReceived, onSharedStateUpdate }: UseWebRTCProps) {
+export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, onPhotosReceived, onRetakeReceived, onSharedStateUpdate, onCaptureStartReceived }: UseWebRTCProps) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connected, setConnected] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
@@ -55,20 +56,20 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   const answeringRef = useRef(false);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  localStreamRef.current = localStream;
+  const createPeerConnectionRef = useRef<() => RTCPeerConnection>(() => { throw new Error("not initialized"); });
 
   const onPhotoReceivedRef = useRef(onPhotoReceived);
-  onPhotoReceivedRef.current = onPhotoReceived;
-
   const onPhotosReceivedRef = useRef(onPhotosReceived);
-  onPhotosReceivedRef.current = onPhotosReceived;
-
   const onRetakeReceivedRef = useRef(onRetakeReceived);
-  onRetakeReceivedRef.current = onRetakeReceived;
-
   const onSharedStateUpdateRef = useRef(onSharedStateUpdate);
-  onSharedStateUpdateRef.current = onSharedStateUpdate;
+  const onCaptureStartReceivedRef = useRef(onCaptureStartReceived);
+
+  useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
+  useEffect(() => { onPhotoReceivedRef.current = onPhotoReceived; }, [onPhotoReceived]);
+  useEffect(() => { onPhotosReceivedRef.current = onPhotosReceived; }, [onPhotosReceived]);
+  useEffect(() => { onRetakeReceivedRef.current = onRetakeReceived; }, [onRetakeReceived]);
+  useEffect(() => { onSharedStateUpdateRef.current = onSharedStateUpdate; }, [onSharedStateUpdate]);
+  useEffect(() => { onCaptureStartReceivedRef.current = onCaptureStartReceived; }, [onCaptureStartReceived]);
 
   const destroyPC = useCallback(() => {
     if (pcRef.current) {
@@ -102,6 +103,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const sendRetake = useCallback(() => {
     sendWs({ type: "retake", peerId: peerIdRef.current });
+  }, [sendWs]);
+
+  const sendCaptureStart = useCallback((captureStartTime: number) => {
+    sendWs({ type: "capture_start", captureStartTime, peerId: peerIdRef.current });
   }, [sendWs]);
 
   const updateSharedState = useCallback((updates: Partial<SharedState>) => {
@@ -173,7 +178,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
           retryCountRef.current++;
           retryTimerRef.current = setTimeout(() => {
             if (localStreamRef.current) {
-              const newPc = createPeerConnection();
+              const newPc = createPeerConnectionRef.current();
               localStreamRef.current.getTracks().forEach((t) => newPc.addTrack(t, localStreamRef.current!));
               createAndSendOffer(newPc);
             }
@@ -210,6 +215,8 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
     pcRef.current = pc;
     return pc;
   }, [sendWs, createAndSendOffer, destroyPC]);
+
+  useEffect(() => { createPeerConnectionRef.current = createPeerConnection; }, [createPeerConnection]);
 
   const handleRemoteOffer = useCallback(async (offer: RTCSessionDescriptionInit) => {
     answeringRef.current = true;
@@ -400,6 +407,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
       if (msg.type === "retake" && msg.peerId !== peerIdRef.current) {
         onRetakeReceivedRef.current?.();
       }
+
+      if (msg.type === "capture_start" && msg.peerId !== peerIdRef.current) {
+        onCaptureStartReceivedRef.current?.(msg.captureStartTime as number);
+      }
     };
 
     return () => {
@@ -441,7 +452,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   return {
     remoteStream, connected, peerCount,
-    sendPhoto, sendPhotos, sendRetake,
+    sendPhoto, sendPhotos, sendRetake, sendCaptureStart,
     sharedState, updateSharedState, addGalleryItem, deleteGalleryItem, addTimelineActivity,
   };
 }
