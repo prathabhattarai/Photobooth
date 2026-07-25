@@ -97,7 +97,7 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   return canvas.toDataURL("image/png");
 }
 
-async function composeStrip(frames: string[]): Promise<string> {
+async function composeStrip(frames: string[], yourName: string, partnerNm: string): Promise<string> {
   const images = await Promise.all(frames.map((f) => loadImage(f)));
 
   const STRIP_W = 420;
@@ -106,8 +106,9 @@ async function composeStrip(frames: string[]): Promise<string> {
   const SLOT_W = STRIP_W - PAD * 2;
   const SLOT_H = 250;
   const SLOT_R = 8;
-  const TEXT_AREA = 40;
-  const STRIP_H = PAD + SLOT_H * 4 + GAP * 3 + TEXT_AREA;
+  const HEADER_H = 80;
+  const FOOTER_H = 70;
+  const STRIP_H = HEADER_H + PAD + SLOT_H * 4 + GAP * 3 + PAD + FOOTER_H;
 
   const canvas = document.createElement("canvas");
   canvas.width = STRIP_W;
@@ -117,6 +118,30 @@ async function composeStrip(frames: string[]): Promise<string> {
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, STRIP_W, STRIP_H);
+
+  const displayName = [yourName, partnerNm].filter(Boolean).join(" & ");
+
+  if (displayName) {
+    ctx.fillStyle = "#d4627a";
+    ctx.font = "bold 18px Georgia, serif";
+    ctx.textAlign = "center";
+    ctx.fillText(displayName, STRIP_W / 2, 36);
+  }
+
+  const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  ctx.fillStyle = "#bbbbbb";
+  ctx.font = "12px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText(dateStr, STRIP_W / 2, 56);
+
+  ctx.strokeStyle = "#f0c4d0";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD + 40, HEADER_H - 8);
+  ctx.lineTo(STRIP_W - PAD - 40, HEADER_H - 8);
+  ctx.stroke();
+
+  const startY = HEADER_H;
 
   function drawFrame(img: HTMLImageElement, y: number) {
     if (!ctx) return;
@@ -146,13 +171,15 @@ async function composeStrip(frames: string[]): Promise<string> {
   }
 
   for (let i = 0; i < images.length && i < 4; i++) {
-    drawFrame(images[i], PAD + i * (SLOT_H + GAP));
+    drawFrame(images[i], startY + i * (SLOT_H + GAP));
   }
 
-  ctx.fillStyle = "#bbbbbb";
+  const footerY = STRIP_H - FOOTER_H + 8;
+
+  ctx.fillStyle = "#d4627a";
   ctx.font = "13px Georgia, serif";
   ctx.textAlign = "center";
-  ctx.fillText("TogetherFrame", STRIP_W / 2, STRIP_H - 14);
+  ctx.fillText("\u2764 TogetherFrame \u2764", STRIP_W / 2, footerY);
 
   return canvas.toDataURL("image/png");
 }
@@ -321,7 +348,7 @@ export default function BoothPage() {
     }
   }, []);
 
-  const { remoteStream, connected, peerCount, sendPhoto, sendRetake, sendCaptureStart, sendFlash, sendNewSession, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
+  const { remoteStream, connected, peerCount, partnerName, sendPhoto, sendRetake, sendCaptureStart, sendFlash, sendNewSession, updateSharedState, addGalleryItem, addTimelineActivity } = useWebRTC({
     roomCode,
     userName,
     localStream: stream,
@@ -340,7 +367,7 @@ export default function BoothPage() {
   const finishSequence = useCallback(() => {
     sequenceActiveRef.current = false;
     setIsComposing(true);
-    composeStrip(accumulatedFramesRef.current).then((strip) => {
+    composeStrip(accumulatedFramesRef.current, user?.name || "", partnerName).then((strip) => {
       setResultImage(strip);
       setView("result");
       setIsComposing(false);
@@ -348,7 +375,7 @@ export default function BoothPage() {
     }).catch(() => {
       setIsComposing(false);
     });
-  }, [updateSharedState]);
+  }, [updateSharedState, user?.name, partnerName]);
 
   const processFrame = useCallback(async (localPhoto: string, partnerPhoto: string) => {
     const coupleFrame = await composeFinalImage(localPhoto, partnerPhoto);
@@ -859,7 +886,7 @@ export default function BoothPage() {
                   src={resultImage}
                   alt="TogetherFrame Strip"
                   className="w-full rounded-2xl"
-                  style={{ aspectRatio: "420/1112", objectFit: "contain" }}
+                  style={{ aspectRatio: "420/1246", objectFit: "contain" }}
                 />
               ) : null}
             </div>

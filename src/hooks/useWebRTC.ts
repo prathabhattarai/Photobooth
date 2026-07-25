@@ -46,6 +46,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   const [connected, setConnected] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
   const [sharedState, setSharedState] = useState<SharedState>(DEFAULT_SHARED_STATE);
+  const [partnerName, setPartnerName] = useState<string>("");
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -338,6 +339,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
       if (msg.type === "existing_members") {
         const hasExisting = msg.has_existing as boolean;
         setPeerCount(msg.member_count as number);
+        const existingNames = msg.existing_names as string[] | undefined;
+        if (existingNames && existingNames.length > 0) {
+          setPartnerName(existingNames[0]);
+        }
         if (hasExisting) {
           if (localStreamRef.current && !pcRef.current) {
             const pc = createPeerConnection();
@@ -350,6 +355,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
       if (msg.type === "user_joined" && msg.user_name !== userName) {
         setPeerCount(msg.members as number);
+        setPartnerName(msg.user_name as string);
       }
 
       if (msg.type === "user_joined" && msg.user_name === userName) {
@@ -473,7 +479,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   }, [localStream, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
 
   return {
-    remoteStream, connected, peerCount,
+    remoteStream, connected, peerCount, partnerName,
     sendPhoto, sendPhotos, sendRetake, sendCaptureStart, sendFlash, sendNewSession,
     sharedState, updateSharedState, addGalleryItem, deleteGalleryItem, addTimelineActivity,
   };

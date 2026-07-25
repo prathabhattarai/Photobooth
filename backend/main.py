@@ -33,19 +33,19 @@ app.include_router(memories_router, prefix="/api")
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: dict[str, list[WebSocket]] = {}
+        self.active_connections: dict[str, list[tuple[WebSocket, str]]] = {}
         self.room_states: dict[str, dict] = {}
 
-    async def connect(self, websocket: WebSocket, room_code: str):
+    async def connect(self, websocket: WebSocket, room_code: str, user_name: str):
         await websocket.accept()
         if room_code not in self.active_connections:
             self.active_connections[room_code] = []
-        self.active_connections[room_code].append(websocket)
+        self.active_connections[room_code].append((websocket, user_name))
 
     def disconnect(self, websocket: WebSocket, room_code: str):
         if room_code in self.active_connections:
             self.active_connections[room_code] = [
-                ws for ws in self.active_connections[room_code] if ws != websocket
+                (ws, name) for ws, name in self.active_connections[room_code] if ws != websocket
             ]
             if not self.active_connections[room_code]:
                 del self.active_connections[room_code]
@@ -69,7 +69,7 @@ class ConnectionManager:
 
     async def broadcast(self, room_code: str, message: dict):
         if room_code in self.active_connections:
-            for connection in self.active_connections[room_code]:
+            for connection, _ in self.active_connections[room_code]:
                 try:
                     await connection.send_json(message)
                 except Exception:
@@ -77,7 +77,7 @@ class ConnectionManager:
 
     async def broadcast_except(self, room_code: str, message: dict, exclude: WebSocket):
         if room_code in self.active_connections:
-            for connection in self.active_connections[room_code]:
+            for connection, _ in self.active_connections[room_code]:
                 if connection != exclude:
                     try:
                         await connection.send_json(message)
@@ -90,11 +90,12 @@ manager = ConnectionManager()
 
 @app.websocket("/ws/{room_code}/{user_name}")
 async def websocket_endpoint(websocket: WebSocket, room_code: str, user_name: str):
-    await manager.connect(websocket, room_code)
+    await manager.connect(websocket, room_code, user_name)
     members = manager.active_connections.get(room_code, [])
     member_count = len(members)
-    other_connections = [ws for ws in members if ws != websocket]
+    other_connections = [(ws, name) for ws, name in members if ws != websocket]
     has_existing = len(other_connections) > 0
+    existing_names = [name for _, name in other_connections]
 
     room_state = manager.get_room_state(room_code)
     await websocket.send_json({
@@ -110,6 +111,7 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, user_name: st
         "type": "existing_members",
         "has_existing": has_existing,
         "member_count": member_count,
+        "existing_names": existing_names,
     })
     try:
         while True:
@@ -179,7 +181,7 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, user_name: st
                     websocket,
                 )
             elif msg_type != "join":
-                for connection in manager.active_connections.get(room_code, []):
+                for connection, _ in manager.active_connections.get(room_code, []):
                     if connection != websocket:
                         try:
                             await connection.send_json(message)
