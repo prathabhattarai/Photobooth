@@ -42,6 +42,7 @@ export default function RoomPage() {
     setError("");
     const avatarUrl = user?.avatar || "";
     try {
+      if (user) setUser({ ...user, name: name.trim() });
       const data = await api.createRoom(name, avatarUrl);
       setGeneratedCode(data.room_code);
       setCurrentRoomCode(data.room_code);
@@ -60,6 +61,7 @@ export default function RoomPage() {
     const avatarUrl = user?.avatar || "";
     let joinFailed = false;
     try {
+      if (user) setUser({ ...user, name: name.trim() });
       const data = await api.joinRoom(roomCode, name, avatarUrl);
       setCurrentRoomCode(data.room_code || roomCode.toUpperCase());
     } catch (err: unknown) {

@@ -84,6 +84,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setUser = useCallback((u: { id: string; name: string; email: string; avatar: string } | null) => {
     setUserState(u);
+    if (typeof window !== "undefined" && u) {
+      localStorage.setItem("tf_user", JSON.stringify(u));
+    }
   }, []);
 
   const setPartnerAvatar = useCallback((avatar: string) => {
