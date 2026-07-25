@@ -276,24 +276,39 @@ export default function BoothPage() {
     if (!video) return null;
     const remoteVideo = remoteVideoRef.current;
     const hasRemote = !!(remoteVideo && remoteVideo.srcObject && remoteVideo.readyState >= 2);
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 480;
+
+    const SLOT_W = 640;
+    const SLOT_H = 480;
     const canvas = document.createElement("canvas");
-    if (hasRemote) {
-      canvas.width = vw * 2;
-      canvas.height = vh;
-    } else {
-      canvas.width = vw;
-      canvas.height = vh;
-    }
+    canvas.width = hasRemote ? SLOT_W * 2 : SLOT_W;
+    canvas.height = SLOT_H;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
+
+    function drawCover(v: HTMLVideoElement, x: number, y: number, w: number, h: number) {
+      if (!ctx) return;
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      if (!vw || !vh) return;
+      const vRatio = vw / vh;
+      const sRatio = w / h;
+      let sx = 0, sy = 0, sw = vw, sh = vh;
+      if (vRatio > sRatio) {
+        sw = vh * sRatio;
+        sx = (vw - sw) / 2;
+      } else {
+        sh = vw / sRatio;
+        sy = (vh - sh) / 2;
+      }
+      ctx.drawImage(v, sx, sy, sw, sh, x, y, w, h);
+    }
+
     if (hasRemote) {
       const halfW = canvas.width / 2;
-      ctx.drawImage(video, 0, 0, halfW, canvas.height);
-      ctx.drawImage(remoteVideo, halfW, 0, halfW, canvas.height);
+      drawCover(video, 0, 0, halfW, canvas.height);
+      drawCover(remoteVideo, halfW, 0, halfW, canvas.height);
     } else {
-      ctx.drawImage(video, 0, 0);
+      drawCover(video, 0, 0, SLOT_W, SLOT_H);
     }
     return canvas.toDataURL("image/png");
   };
