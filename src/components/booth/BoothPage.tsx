@@ -200,9 +200,7 @@ export default function BoothPage() {
     canvas.height = Math.round(sh);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.filter = "grayscale(1)";
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    ctx.filter = "none";
     return canvas.toDataURL("image/png");
   }, []);
 
