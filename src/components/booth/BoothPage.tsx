@@ -16,6 +16,8 @@ import {
   RotateCcw,
   Sparkles,
   AlertTriangle,
+  Save,
+  Image as ImageIcon,
 } from "lucide-react";
 
 import { useApp } from "@/lib/store";
@@ -47,7 +49,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-async function composeCollage(localFrames: string[], partnerFrames: string[], yourName: string, partnerNm: string): Promise<string> {
+async function composeCollage(localFrames: string[], partnerFrames: string[], yourName: string, partnerNm: string, bw: boolean = true): Promise<string> {
   const allFrames = [...localFrames, ...partnerFrames];
   const images = await Promise.all(allFrames.map((f) => loadImage(f)));
   const localImages = images.slice(0, 4);
@@ -107,7 +109,7 @@ async function composeCollage(localFrames: string[], partnerFrames: string[], yo
       drawX = x;
       drawY = y + (h - drawH) / 2;
     }
-    ctx.filter = "grayscale(1) contrast(1.1) brightness(1.02)";
+    ctx.filter = bw ? "grayscale(1) contrast(1.1) brightness(1.02)" : "none";
     ctx.drawImage(img, drawX, drawY, drawW, drawH);
     ctx.filter = "none";
     ctx.restore();
@@ -146,6 +148,7 @@ export default function BoothPage() {
   const [capturedPartnerFrames, setCapturedPartnerFrames] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [bwFilter, setBwFilter] = useState(true);
   const [captureCount, setCaptureCount] = useState(0);
 
   const roomCode = currentRoomCode || "local";
@@ -436,7 +439,7 @@ export default function BoothPage() {
 
   const handleDownload = async () => {
     if (capturedLocalFrames.length < 4 || capturedPartnerFrames.length < 4) return;
-    const collage = await composeCollage(capturedLocalFrames, capturedPartnerFrames, user?.name || "", partnerName);
+    const collage = await composeCollage(capturedLocalFrames, capturedPartnerFrames, user?.name || "", partnerName, bwFilter);
     const link = document.createElement("a");
     link.download = `togetherframe-${Date.now()}.png`;
     link.href = collage;
@@ -447,7 +450,7 @@ export default function BoothPage() {
     if (capturedLocalFrames.length < 4 || saved) return;
     setIsSaving(true);
     try {
-      const collage = await composeCollage(capturedLocalFrames, capturedPartnerFrames, user?.name || "", partnerName);
+      const collage = await composeCollage(capturedLocalFrames, capturedPartnerFrames, user?.name || "", partnerName, bwFilter);
       await saveMemoryToAPI(roomCode, collage, "Our photo collage", selectedFrame);
       setSaved(true);
       addGalleryItem({
@@ -862,7 +865,7 @@ export default function BoothPage() {
                             className="w-full object-cover"
                             style={{
                               aspectRatio: "3/4",
-                              filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
+                              filter: bwFilter ? "grayscale(100%) contrast(1.1) brightness(1.02)" : "none",
                             }}
                           />
                         </div>
@@ -874,7 +877,7 @@ export default function BoothPage() {
                             className="w-full object-cover"
                             style={{
                               aspectRatio: "3/4",
-                              filter: "grayscale(100%) contrast(1.1) brightness(1.02)",
+                              filter: bwFilter ? "grayscale(100%) contrast(1.1) brightness(1.02)" : "none",
                             }}
                           />
                         </div>
@@ -889,21 +892,55 @@ export default function BoothPage() {
               )}
             </div>
 
+            {/* B&W Toggle */}
+            <div className="flex items-center justify-center gap-3 mb-4 w-full max-w-md mx-auto px-4">
+              <button
+                onClick={() => setBwFilter(true)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                  bwFilter
+                    ? "bg-warm-gray-800 text-white shadow-md"
+                    : "bg-white text-warm-gray-500 border border-gray-200 hover:bg-gray-50"
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                B&W
+              </button>
+              <button
+                onClick={() => setBwFilter(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${
+                  !bwFilter
+                    ? "bg-warm-gray-800 text-white shadow-md"
+                    : "bg-white text-warm-gray-500 border border-gray-200 hover:bg-gray-50"
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                Original
+              </button>
+            </div>
+
             {/* Action Buttons */}
-            <div className="flex items-center justify-center gap-4 w-full max-w-md mx-auto px-4">
+            <div className="flex items-center justify-center gap-3 w-full max-w-md mx-auto px-4">
               <button
                 onClick={handleRetake}
-                className="flex-1 flex items-center justify-center gap-2 h-[52px] rounded-full bg-white hover:bg-gray-50 text-warm-gray-600 font-bold shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-sm border border-gray-100"
+                className="flex-1 flex items-center justify-center gap-2 h-[48px] rounded-full bg-white hover:bg-gray-50 text-warm-gray-600 font-bold shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-sm border border-gray-100"
               >
                 <RotateCcw className="w-4 h-4" />
                 Retake
               </button>
               <button
                 onClick={handleDownload}
-                className="flex-1 flex items-center justify-center gap-2 h-[52px] rounded-full bg-gradient-to-br from-pink-400 to-rose-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm"
+                className="flex-1 flex items-center justify-center gap-2 h-[48px] rounded-full bg-white hover:bg-gray-50 text-warm-gray-600 font-bold shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-sm border border-gray-100"
               >
                 <Download className="w-4 h-4" />
-                Download Strip
+                Download
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saved || isSaving}
+                className="flex-1 flex items-center justify-center gap-2 h-[48px] rounded-full bg-gradient-to-br from-pink-400 to-rose-500 text-white font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Save className="w-4 h-4" />
+                {saved ? "Saved!" : isSaving ? "Saving..." : "Save to Gallery"}
               </button>
             </div>
           </motion.div>
