@@ -2,12 +2,18 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 
-const STUN_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ],
-};
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+  { urls: "stun:stun.ekiga.net" },
+  { urls: "stun:stun.ideasip.com" },
+  { urls: "stun:stun.schlund.de" },
+  { urls: "stun:stun.voiparound.com" },
+  { urls: "stun:stun.voipbuster.com" },
+];
 
 interface UseWebRTCProps {
   roomCode: string;
@@ -28,9 +34,11 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
   const peerIdRef = useRef(crypto.randomUUID().slice(0, 8));
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
   const pendingCandidateRef = useRef<RTCIceCandidateInit[]>([]);
-  const pendingMembersRef = useRef<string[]>([]);
+  const pendingMembersRef = useRef<boolean>(false);
   const negotiatingRef = useRef(false);
   const answeringRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   localStreamRef.current = localStream;
 
@@ -39,6 +47,21 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const onPhotosReceivedRef = useRef(onPhotosReceived);
   onPhotosReceivedRef.current = onPhotosReceived;
+
+  const destroyPC = useCallback(() => {
+    if (pcRef.current) {
+      pcRef.current.onicecandidate = null;
+      pcRef.current.ontrack = null;
+      pcRef.current.oniceconnectionstatechange = null;
+      pcRef.current.onconnectionstatechange = null;
+      pcRef.current.onnegotiationneeded = null;
+      try { pcRef.current.close(); } catch {}
+      pcRef.current = null;
+    }
+    negotiatingRef.current = false;
+    answeringRef.current = false;
+    pendingCandidateRef.current = [];
+  }, []);
 
   const sendWs = useCallback((data: Record<string, unknown>) => {
     const ws = wsRef.current;
@@ -63,6 +86,7 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
       if (pc.signalingState !== "stable") return;
       await pc.setLocalDescription(offer);
       sendWs({ type: "offer", offer: pc.localDescription, peerId: peerIdRef.current });
+    } catch {
     } finally {
       negotiatingRef.current = false;
     }
@@ -70,11 +94,11 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
   const createPeerConnection = useCallback(() => {
     if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection(STUN_SERVERS);
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        sendWs({ type: "ice-candidate", candidate: e.candidate, peerId: peerIdRef.current });
+        sendWs({ type: "ice-candidate", candidate: e.candidate.toJSON(), peerId: peerIdRef.current });
       }
     };
 
@@ -82,24 +106,42 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
       if (e.streams && e.streams[0]) {
         setRemoteStream(e.streams[0]);
         setConnected(true);
+        retryCountRef.current = 0;
       }
     };
 
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState;
-      if (state === "failed" || state === "closed" || state === "disconnected") {
-        setConnected(false);
-        setRemoteStream(null);
-      }
       if (state === "connected" || state === "completed") {
         setConnected(true);
+        retryCountRef.current = 0;
+      }
+      if (state === "failed") {
+        setConnected(false);
+        setRemoteStream(null);
+        destroyPC();
+        if (retryCountRef.current < 3) {
+          retryCountRef.current++;
+          retryTimerRef.current = setTimeout(() => {
+            if (localStreamRef.current) {
+              const newPc = createPeerConnection();
+              localStreamRef.current.getTracks().forEach((t) => newPc.addTrack(t, localStreamRef.current!));
+              createAndSendOffer(newPc);
+            }
+          }, 2000 * retryCountRef.current);
+        }
+      }
+      if (state === "disconnected") {
+        setConnected(false);
       }
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "disconnected" || pc.connectionState === "failed" || pc.connectionState === "closed") {
+      const state = pc.connectionState;
+      if (state === "failed" || state === "closed") {
         setConnected(false);
         setRemoteStream(null);
+        destroyPC();
       }
     };
 
@@ -118,14 +160,15 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
 
     pcRef.current = pc;
     return pc;
-  }, [sendWs, createAndSendOffer]);
+  }, [sendWs, createAndSendOffer, destroyPC]);
 
   const handleRemoteOffer = useCallback(async (offer: RTCSessionDescriptionInit) => {
     answeringRef.current = true;
     negotiatingRef.current = true;
     try {
       let pc = pcRef.current;
-      if (!pc) {
+      if (!pc || pc.signalingState === "closed" || pc.connectionState === "failed") {
+        destroyPC();
         pc = createPeerConnection();
       }
 
@@ -148,62 +191,71 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
           try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
         }
       }
+    } catch {
     } finally {
       negotiatingRef.current = false;
       setTimeout(() => { answeringRef.current = false; }, 0);
     }
-  }, [createPeerConnection, sendWs]);
+  }, [createPeerConnection, sendWs, destroyPC]);
 
   useEffect(() => {
     if (!roomCode || !userName || roomCode === "local") return;
 
-    const wsUrl = `wss://togetherframe-backend.onrender.com/ws/${roomCode}/${userName}`;
+    const wsUrl = `wss://togetherframe-backend.onrender.com/ws/${roomCode}/${encodeURIComponent(userName)}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
+    ws.onopen = () => {
+      retryCountRef.current = 0;
+    };
+
     ws.onmessage = async (event) => {
-      const msg = JSON.parse(event.data);
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(event.data);
+      } catch { return; }
 
       if (msg.type === "existing_members") {
-        setPeerCount(msg.member_count);
-        if (msg.has_existing) {
+        const hasExisting = msg.has_existing as boolean;
+        setPeerCount(msg.member_count as number);
+        if (hasExisting) {
           if (localStreamRef.current && !pcRef.current) {
             const pc = createPeerConnection();
             createAndSendOffer(pc);
-          } else {
-            pendingMembersRef.current = ["peer"];
+          } else if (!localStreamRef.current) {
+            pendingMembersRef.current = true;
           }
         }
       }
 
       if (msg.type === "user_joined" && msg.user_name !== userName) {
-        setPeerCount(msg.members);
+        setPeerCount(msg.members as number);
       }
 
       if (msg.type === "user_joined" && msg.user_name === userName) {
-        setPeerCount(msg.members);
+        setPeerCount(msg.members as number);
       }
 
       if (msg.type === "user_left") {
-        setPeerCount(msg.members);
+        setPeerCount(msg.members as number);
         setConnected(false);
         setRemoteStream(null);
-        if (pcRef.current) {
-          pcRef.current.close();
-          pcRef.current = null;
-        }
+        destroyPC();
         pendingOfferRef.current = null;
         pendingCandidateRef.current = [];
-        pendingMembersRef.current = [];
-        negotiatingRef.current = false;
-        answeringRef.current = false;
+        pendingMembersRef.current = false;
+        retryCountRef.current = 0;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
       }
 
       if (msg.type === "offer" && msg.peerId !== peerIdRef.current) {
         if (localStreamRef.current) {
-          await handleRemoteOffer(msg.offer);
+          await handleRemoteOffer(msg.offer as RTCSessionDescriptionInit);
         } else {
-          pendingOfferRef.current = msg.offer;
+          pendingOfferRef.current = msg.offer as RTCSessionDescriptionInit;
         }
       }
 
@@ -211,54 +263,54 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
         try {
           const pc = pcRef.current;
           if (pc && pc.signalingState === "have-local-offer") {
-            await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.answer as RTCSessionDescriptionInit));
           }
         } catch {}
       }
 
       if (msg.type === "ice-candidate" && msg.peerId !== peerIdRef.current) {
+        const candidate = msg.candidate as RTCIceCandidateInit;
         try {
           if (pcRef.current && pcRef.current.remoteDescription) {
-            await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
           } else {
-            pendingCandidateRef.current.push(msg.candidate);
+            pendingCandidateRef.current.push(candidate);
           }
         } catch {
           try {
             if (pcRef.current && pcRef.current.remoteDescription) {
-              await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
             }
           } catch {}
         }
       }
 
       if (msg.type === "photo_captured" && msg.peerId !== peerIdRef.current) {
-        onPhotoReceivedRef.current?.(msg.photoData);
+        onPhotoReceivedRef.current?.(msg.photoData as string);
       }
 
       if (msg.type === "photos_captured" && msg.peerId !== peerIdRef.current) {
-        onPhotosReceivedRef.current?.(msg.photos);
+        onPhotosReceivedRef.current?.(msg.photos as string[]);
       }
     };
 
     return () => {
       ws.close();
-      if (pcRef.current) {
-        pcRef.current.close();
-        pcRef.current = null;
-      }
-      negotiatingRef.current = false;
-      answeringRef.current = false;
+      destroyPC();
       pendingOfferRef.current = null;
       pendingCandidateRef.current = [];
-      pendingMembersRef.current = [];
+      pendingMembersRef.current = false;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
-  }, [roomCode, userName, createPeerConnection, createAndSendOffer, handleRemoteOffer]);
+  }, [roomCode, userName, createPeerConnection, createAndSendOffer, handleRemoteOffer, destroyPC]);
 
   useEffect(() => {
     if (!localStream) return;
     const pc = pcRef.current;
-    if (pc) {
+    if (pc && pc.signalingState !== "closed") {
       localStream.getTracks().forEach((track) => {
         const senders = pc.getSenders();
         const existing = senders.find((s) => s.track?.kind === track.kind);
@@ -268,10 +320,10 @@ export function useWebRTC({ roomCode, userName, localStream, onPhotoReceived, on
           pc.addTrack(track, localStream);
         }
       });
-    } else if (pendingMembersRef.current.length > 0) {
+    } else if (pendingMembersRef.current) {
+      pendingMembersRef.current = false;
       const newPc = createPeerConnection();
       createAndSendOffer(newPc);
-      pendingMembersRef.current = [];
     } else if (pendingOfferRef.current) {
       const offer = pendingOfferRef.current;
       pendingOfferRef.current = null;
