@@ -18,11 +18,9 @@ import {
   LogOut,
   Sparkles,
 } from "lucide-react";
-import { FrameType } from "@/lib/types";
 
 import { useApp } from "@/lib/store";
 import FloatingElements from "@/components/ui/FloatingElements";
-import FrameLayoutSelector from "@/components/ui/FrameLayoutSelector";
 import { useWebRTC } from "@/hooks/useWebRTC";
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -110,13 +108,13 @@ type BoothView = "camera" | "result";
 
 export default function BoothPage() {
   const router = useRouter();
-  const { user, partnerAvatar, frameLayout, setFrameLayout, currentRoomCode, saveMemoryToAPI } = useApp();
+  const { user, partnerAvatar, currentRoomCode, saveMemoryToAPI } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const selectedFrame: FrameType = "polaroid";
+  const selectedFrame = "polaroid";
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
@@ -490,11 +488,17 @@ export default function BoothPage() {
 
         {/* ========== CAMERA VIEW (always mounted, hidden when viewing result) ========== */}
         <div className={view === "camera" ? "" : "hidden"}>
-          {/* Split Screen */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {/* You */}
-            <div className="relative rounded-3xl overflow-hidden pastel-shadow">
-              <div className="aspect-[4/3] bg-gradient-to-br from-pink-100 to-pink-200 relative">
+          {/* Fixed Shared Photobooth Frame */}
+          <div className="flex justify-center mb-6">
+            <div
+              className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[380px]"
+              style={{ aspectRatio: "3/4" }}
+            >
+              {/* Local Video Slot */}
+              <div
+                className="relative bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden mb-2"
+                style={{ aspectRatio: "18/11" }}
+              >
                 <video
                   ref={videoRef}
                   autoPlay
@@ -505,58 +509,49 @@ export default function BoothPage() {
                 />
                 {isCamOff && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-pink-50/90 backdrop-blur-sm">
-                    <VideoOff className="w-12 h-12 text-pink-300 mb-2" />
-                    <p className="text-sm text-pink-400 font-bold">Camera off</p>
+                    <VideoOff className="w-10 h-10 text-pink-300 mb-1" />
+                    <p className="text-xs text-pink-400 font-bold">Camera off</p>
                   </div>
                 )}
                 {cameraError && !isCamOff && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-gradient-to-br from-pink-50 to-rose-50 p-6">
-                    <div className="w-16 h-16 rounded-full bg-pink-100 flex items-center justify-center mb-3">
-                      <Camera className="w-8 h-8 text-pink-400" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-gradient-to-br from-pink-50 to-rose-50 p-4">
+                    <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center mb-2">
+                      <Camera className="w-6 h-6 text-pink-400" />
                     </div>
                     <button
                       onClick={startCamera}
-                      className="px-8 py-4 rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-lg font-bold shadow-xl hover:shadow-2xl active:scale-95 transition-all"
+                      className="px-6 py-3 rounded-xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-sm font-bold shadow-lg active:scale-95 transition-all"
                     >
                       Tap to Enable Camera
                     </button>
-                    <p className="text-xs text-pink-400 mt-4 text-center leading-relaxed">{cameraError}</p>
-                    <button
-                      onClick={() => window.location.reload()}
-                      className="mt-3 px-4 py-1.5 rounded-full bg-pink-100 text-pink-500 text-xs font-bold hover:bg-pink-200 transition-colors"
-                    >
-                      Reload Page
-                    </button>
+                    <p className="text-[10px] text-pink-400 mt-2 text-center leading-relaxed">
+                      {cameraError}
+                    </p>
                   </div>
                 )}
                 {!isActive && !cameraError && !isCamOff && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-pink-50/80 to-rose-50/80">
-                    <div className="w-20 h-20 rounded-full bg-white/80 flex items-center justify-center mb-4 shadow-lg animate-pulse-soft">
-                      <Camera className="w-10 h-10 text-pink-400" />
+                    <div className="w-14 h-14 rounded-full bg-white/80 flex items-center justify-center mb-2 shadow-lg animate-pulse-soft">
+                      <Camera className="w-7 h-7 text-pink-400" />
                     </div>
                     <button
                       onClick={startCamera}
-                      className="px-10 py-5 rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-xl font-bold shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all"
+                      className="px-6 py-3 rounded-xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-sm font-bold shadow-lg active:scale-95 transition-all"
                     >
-                      📸 Tap to Start Camera
+                      Start Camera
                     </button>
-                    <p className="text-sm text-pink-300 mt-3">Tap the button above to allow camera access</p>
                   </div>
                 )}
-                <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/80 backdrop-blur text-xs font-bold text-pink-500">
-                  You 📷
+                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-bold text-pink-500">
+                  You
                 </div>
               </div>
-            </div>
 
-            {/* Connection Indicator */}
-            <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 z-20 flex-col items-center gap-1">
-              <Heart className="w-6 h-6 text-pink-400 animate-heartbeat" fill="currentColor" />
-            </div>
-
-            {/* Partner */}
-            <div className="relative rounded-3xl overflow-hidden pastel-shadow">
-              <div className="aspect-[4/3] bg-gradient-to-br from-lavender-100 to-lavender-200 relative flex items-center justify-center">
+              {/* Partner Video Slot */}
+              <div
+                className="relative bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden"
+                style={{ aspectRatio: "18/11" }}
+              >
                 {remoteStream ? (
                   <video
                     ref={remoteVideoCallback}
@@ -567,38 +562,50 @@ export default function BoothPage() {
                 ) : connected ? (
                   <div className="text-center">
                     {partnerAvatar ? (
-                      <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-white/60 mx-auto mb-3 animate-float">
+                      <div className="w-14 h-14 rounded-full overflow-hidden border-3 border-white/60 mx-auto mb-1 animate-float">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={partnerAvatar} alt="Partner" className="w-full h-full object-cover" />
+                        <img
+                          src={partnerAvatar}
+                          alt="Partner"
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                     ) : (
-                      <div className="text-7xl mb-3 animate-float">💌</div>
+                      <div className="text-4xl mb-1 animate-float">💌</div>
                     )}
-                    <p className="text-lavender-400 font-bold text-sm">Partner Connected</p>
-                    <p className="text-lavender-300 text-xs mt-1">Waiting for camera...</p>
+                    <p className="text-lavender-400 font-bold text-xs">
+                      Partner Connected
+                    </p>
+                    <p className="text-lavender-300 text-[10px] mt-0.5">
+                      Waiting for camera...
+                    </p>
                   </div>
                 ) : (
                   <div className="text-center">
-                    <div className="text-5xl mb-3 animate-pulse-soft">💌</div>
-                    <p className="text-lavender-400 font-bold text-sm">Waiting for partner...</p>
-                    <p className="text-lavender-300 text-xs mt-1">
-                      Share room code: <span className="font-bold text-lavender-500">{roomCode}</span>
+                    <div className="text-3xl mb-1 animate-pulse-soft">💌</div>
+                    <p className="text-lavender-400 font-bold text-xs">
+                      Waiting for partner...
+                    </p>
+                    <p className="text-lavender-300 text-[10px] mt-0.5">
+                      Room:{" "}
+                      <span className="font-bold text-lavender-500">
+                        {roomCode}
+                      </span>
                     </p>
                   </div>
                 )}
-                <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-white/80 backdrop-blur text-xs font-bold text-lavender-500">
-                  Partner 📷
+                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-bold text-lavender-500">
+                  Partner
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Frame Layout Selector */}
-          <div className="mb-6">
-            <FrameLayoutSelector value={frameLayout} onChange={(v) => {
-              setFrameLayout(v);
-              updateSharedState({ layout: v });
-            }} />
+              {/* Bottom Text */}
+              <div className="text-center mt-auto pt-2">
+                <p className="text-[11px] text-gray-300 font-serif tracking-wide">
+                  TogetherFrame
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Controls */}
