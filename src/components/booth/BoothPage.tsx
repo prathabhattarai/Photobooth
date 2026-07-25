@@ -51,8 +51,8 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   const localImg = await loadImage(localPhoto);
   const partnerImg = await loadImage(partnerPhoto);
 
-  const W = 600;
-  const H = 800;
+  const W = 900;
+  const H = 600;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
@@ -63,10 +63,10 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   ctx.fillRect(0, 0, W, H);
 
   const PAD = 30;
-  const GAP = 20;
-  const TEXT_AREA = 60;
-  const photoW = W - PAD * 2;
-  const photoH = (H - PAD * 2 - GAP - TEXT_AREA) / 2;
+  const GAP = 16;
+  const TEXT_AREA = 50;
+  const photoW = (W - PAD * 2 - GAP) / 2;
+  const photoH = H - PAD * 2 - TEXT_AREA;
 
   function drawPhoto(img: HTMLImageElement, x: number, y: number, w: number, h: number) {
     if (!ctx) return;
@@ -94,12 +94,12 @@ async function composeFinalImage(localPhoto: string, partnerPhoto: string): Prom
   }
 
   drawPhoto(localImg, PAD, PAD, photoW, photoH);
-  drawPhoto(partnerImg, PAD, PAD + photoH + GAP, photoW, photoH);
+  drawPhoto(partnerImg, PAD + photoW + GAP, PAD, photoW, photoH);
 
   ctx.fillStyle = "#bbbbbb";
   ctx.font = "13px Georgia, serif";
   ctx.textAlign = "center";
-  ctx.fillText("TogetherFrame", W / 2, H - 25);
+  ctx.fillText("TogetherFrame", W / 2, H - 18);
 
   return canvas.toDataURL("image/png");
 }
@@ -488,105 +488,108 @@ export default function BoothPage() {
 
         {/* ========== CAMERA VIEW (always mounted, hidden when viewing result) ========== */}
         <div className={view === "camera" ? "" : "hidden"}>
-          {/* Fixed Shared Photobooth Frame */}
+          {/* Fixed Shared Photobooth Frame — side-by-side */}
           <div className="flex justify-center mb-6">
-            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[380px] flex flex-col gap-2">
-              {/* Local Video Slot */}
-              <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 w-full h-full object-cover"
-                  style={{ transform: "scaleX(-1)" }}
-                />
-                {isCamOff && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-pink-50/90 backdrop-blur-sm">
-                    <VideoOff className="w-10 h-10 text-pink-300 mb-1" />
-                    <p className="text-xs text-pink-400 font-bold">Camera off</p>
-                  </div>
-                )}
-                {cameraError && !isCamOff && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-gradient-to-br from-pink-50 to-rose-50 p-4">
-                    <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center mb-2">
-                      <Camera className="w-6 h-6 text-pink-400" />
-                    </div>
-                    <button
-                      onClick={startCamera}
-                      className="px-6 py-3 rounded-xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-sm font-bold shadow-lg active:scale-95 transition-all"
-                    >
-                      Tap to Enable Camera
-                    </button>
-                    <p className="text-[10px] text-pink-400 mt-2 text-center leading-relaxed">
-                      {cameraError}
-                    </p>
-                  </div>
-                )}
-                {!isActive && !cameraError && !isCamOff && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-pink-50/80 to-rose-50/80">
-                    <div className="w-14 h-14 rounded-full bg-white/80 flex items-center justify-center mb-2 shadow-lg animate-pulse-soft">
-                      <Camera className="w-7 h-7 text-pink-400" />
-                    </div>
-                    <button
-                      onClick={startCamera}
-                      className="px-6 py-3 rounded-xl bg-gradient-to-br from-pink-400 to-rose-500 text-white text-sm font-bold shadow-lg active:scale-95 transition-all"
-                    >
-                      Start Camera
-                    </button>
-                  </div>
-                )}
-                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-bold text-pink-500">
-                  You
-                </div>
-              </div>
-
-              {/* Partner Video Slot */}
-              <div className="relative w-full aspect-[4/3] bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden">
-                {remoteStream ? (
+            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-5 w-full max-w-[640px] flex flex-col gap-2">
+              {/* Two side-by-side camera slots */}
+              <div className="flex gap-2 w-full">
+                {/* Local Video Slot */}
+                <div className="relative flex-1 aspect-[4/3] bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl overflow-hidden">
                   <video
-                    ref={remoteVideoCallback}
+                    ref={videoRef}
                     autoPlay
                     playsInline
+                    muted
                     className="absolute inset-0 w-full h-full object-cover"
+                    style={{ transform: "scaleX(-1)" }}
                   />
-                ) : connected ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    {partnerAvatar ? (
-                      <div className="w-14 h-14 rounded-full overflow-hidden border-3 border-white/60 mb-1 animate-float">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={partnerAvatar}
-                          alt="Partner"
-                          className="w-full h-full object-cover"
-                        />
+                  {isCamOff && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-pink-50/90 backdrop-blur-sm">
+                      <VideoOff className="w-8 h-8 text-pink-300 mb-1" />
+                      <p className="text-[10px] text-pink-400 font-bold">Camera off</p>
+                    </div>
+                  )}
+                  {cameraError && !isCamOff && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-pink-400 bg-gradient-to-br from-pink-50 to-rose-50 p-3">
+                      <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center mb-1.5">
+                        <Camera className="w-5 h-5 text-pink-400" />
                       </div>
-                    ) : (
-                      <div className="text-4xl mb-1 animate-float">💌</div>
-                    )}
-                    <p className="text-lavender-400 font-bold text-xs">
-                      Partner Connected
-                    </p>
-                    <p className="text-lavender-300 text-[10px] mt-0.5">
-                      Waiting for camera...
-                    </p>
+                      <button
+                        onClick={startCamera}
+                        className="px-4 py-2 rounded-lg bg-gradient-to-br from-pink-400 to-rose-500 text-white text-xs font-bold shadow-lg active:scale-95 transition-all"
+                      >
+                        Enable Camera
+                      </button>
+                      <p className="text-[9px] text-pink-400 mt-1.5 text-center leading-relaxed max-w-[160px]">
+                        {cameraError}
+                      </p>
+                    </div>
+                  )}
+                  {!isActive && !cameraError && !isCamOff && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-pink-50/80 to-rose-50/80">
+                      <div className="w-10 h-10 rounded-full bg-white/80 flex items-center justify-center mb-1.5 shadow-lg animate-pulse-soft">
+                        <Camera className="w-5 h-5 text-pink-400" />
+                      </div>
+                      <button
+                        onClick={startCamera}
+                        className="px-4 py-2 rounded-lg bg-gradient-to-br from-pink-400 to-rose-500 text-white text-xs font-bold shadow-lg active:scale-95 transition-all"
+                      >
+                        Start Camera
+                      </button>
+                    </div>
+                  )}
+                  <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-bold text-pink-500">
+                    You
                   </div>
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="text-3xl mb-1 animate-pulse-soft">💌</div>
-                    <p className="text-lavender-400 font-bold text-xs">
-                      Waiting for partner...
-                    </p>
-                    <p className="text-lavender-300 text-[10px] mt-0.5">
-                      Room:{" "}
-                      <span className="font-bold text-lavender-500">
-                        {roomCode}
-                      </span>
-                    </p>
+                </div>
+
+                {/* Partner Video Slot */}
+                <div className="relative flex-1 aspect-[4/3] bg-gradient-to-br from-lavender-50 to-lavender-100 rounded-2xl overflow-hidden">
+                  {remoteStream ? (
+                    <video
+                      ref={remoteVideoCallback}
+                      autoPlay
+                      playsInline
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : connected ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      {partnerAvatar ? (
+                        <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/60 mb-1 animate-float">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={partnerAvatar}
+                            alt="Partner"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-3xl mb-1 animate-float">💌</div>
+                      )}
+                      <p className="text-lavender-400 font-bold text-[10px]">
+                        Connected
+                      </p>
+                      <p className="text-lavender-300 text-[9px] mt-0.5">
+                        Waiting for camera...
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <div className="text-2xl mb-1 animate-pulse-soft">💌</div>
+                      <p className="text-lavender-400 font-bold text-[10px]">
+                        Waiting...
+                      </p>
+                      <p className="text-lavender-300 text-[9px] mt-0.5">
+                        Room:{" "}
+                        <span className="font-bold text-lavender-500">
+                          {roomCode}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                  <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-bold text-lavender-500">
+                    Partner
                   </div>
-                )}
-                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-bold text-lavender-500">
-                  Partner
                 </div>
               </div>
 
